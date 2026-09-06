@@ -1,60 +1,63 @@
 #!/usr/bin/env python3
-"""Drive the local LM Studio model through a small, fixed set of tools.
+"""Work a GitHub issue with the local model. No MCP, no cloud, no pip deps.
 
-No MCP, no cloud, no pip dependencies - stdlib only, talking to LM Studio's
-OpenAI-compatible endpoint on this machine.
+Single self-contained file - drop it into any repo's agent harness. It talks to
+LM Studio's OpenAI-compatible endpoint on localhost, and uses the `gh` and `git`
+CLIs as its tool layer.
 
-The tool menu is deliberately tiny. Tool-choice accuracy falls off badly as the
-menu grows, and Gemma 4 E2B is a 2B-effective model; six well-described tools it
-picks correctly beat thirty it guesses between.
+  pi5-agent --selftest              can the model call tools at all?
+  pi5-agent --issue 12              read issue 12, branch, work it, open a draft PR
+  pi5-agent "summarise open issues" read-only question
 
-Usage:
-  pi5-agent --selftest                 check the model can call tools at all
-  pi5-agent "summarise my open issues"
-  pi5-agent --repo owner/name "what is issue 12 asking for"
-  pi5-agent --allow-write "reply to issue 12 with a plan"
-
-Writes are refused unless --allow-write is passed, and each one is printed and
-confirmed before it happens.
+The safety boundary is not "read nothing". It is: never touch the default
+branch, never merge, never close. Work lands on an agent/ branch as a draft PR
+for a human to review.
 """
 
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.error
 import urllib.request
 
 BASE_URL = os.environ.get("LMS_BASE_URL", "http://127.0.0.1:1234/v1")
-MODEL = os.environ.get("LMS_MODEL_ID", "")  # empty = whatever is loaded
-MAX_TURNS = int(os.environ.get("AGENT_MAX_TURNS", "8"))
-# Tool output has to fit the context alongside everything else. The server loads
-# at 8192 by default, so a single issue body cannot be allowed to eat it.
+MODEL = os.environ.get("LMS_MODEL_ID", "")
+MAX_TURNS = int(os.environ.get("AGENT_MAX_TURNS", "20"))
 MAX_TOOL_CHARS = int(os.environ.get("AGENT_MAX_TOOL_CHARS", "4000"))
+BRANCH_PREFIX = os.environ.get("AGENT_BRANCH_PREFIX", "agent/")
 
+_tty = sys.stdout.isatty()
 DIM, BOLD, RED, GRN, YEL, BLU, RST = (
     ("\033[2m", "\033[1m", "\033[31m", "\033[32m", "\033[33m", "\033[34m", "\033[0m")
-    if sys.stdout.isatty() else ("",) * 7
+    if _tty else ("", "", "", "", "", "", "")
 )
 
 
-def say(msg):
-    print(f"{BLU}==>{RST} {msg}")
-
-
-def warn(msg):
-    print(f"{YEL}!{RST} {msg}", file=sys.stderr)
-
-
-def die(msg, code=1):
-    print(f"{RED}{BOLD}ERROR:{RST} {msg}", file=sys.stderr)
+def say(m): print(f"{BLU}==>{RST} {m}")
+def warn(m): print(f"{YEL}!{RST} {m}", file=sys.stderr)
+def die(m, code=1):
+    print(f"{RED}{BOLD}ERROR:{RST} {m}", file=sys.stderr)
     sys.exit(code)
 
 
-# --------------------------------------------------------------------------
-# tools
-# --------------------------------------------------------------------------
+def run(cmd, cwd, timeout=120):
+    """Fixed argv, never a shell string, so nothing the model emits can be
+    interpreted as shell syntax."""
+    try:
+        p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    except FileNotFoundError:
+        return 1, f"error: {cmd[0]} is not installed"
+    except subprocess.TimeoutExpired:
+        return 1, f"error: {cmd[0]} timed out"
+    out = (p.stdout or "").strip()
+    err = (p.stderr or "").strip()
+    if p.returncode != 0:
+        return p.returncode, f"error: {err or out or cmd[0] + ' failed'}"
+    return 0, out
+
 
 class Tools:
     def __init__(self, workdir, repo=None, allow_write=False, assume_yes=False):
@@ -62,60 +65,60 @@ class Tools:
         self.repo = repo
         self.allow_write = allow_write
         self.assume_yes = assume_yes
+        self.branch = None      # set once we switch to an agent branch
+        self.touched = set()
 
     # -- helpers -----------------------------------------------------------
 
     def _gh(self, *args):
-        """Run gh with a fixed argv. Never a shell string, so nothing the model
-        emits can be interpreted as shell syntax."""
         cmd = ["gh", *args]
-        if self.repo and "--repo" not in args and args[0] in ("issue", "pr", "repo"):
+        if self.repo and args and args[0] in ("issue", "pr", "repo"):
             cmd += ["--repo", self.repo]
-        try:
-            out = subprocess.run(
-                cmd, cwd=self.workdir, capture_output=True, text=True, timeout=60
-            )
-        except FileNotFoundError:
-            return "error: the gh CLI is not installed (make app APP=gh)"
-        except subprocess.TimeoutExpired:
-            return "error: gh timed out"
-        if out.returncode != 0:
-            return f"error: {out.stderr.strip() or 'gh failed'}"
-        return out.stdout.strip()
+        return run(cmd, self.workdir)[1]
+
+    def _git(self, *args):
+        return run(["git", *args], self.workdir)[1]
 
     def _safe_path(self, path):
-        """Confine file access to the working directory."""
         full = os.path.realpath(os.path.join(self.workdir, path))
         if full != self.workdir and not full.startswith(self.workdir + os.sep):
             return None
+        if os.sep + ".git" + os.sep in full + os.sep:
+            return None          # the model has no business rewriting git internals
         return full
 
-    def _confirm(self, description):
+    def _confirm(self, what):
+        """Only for things that leave this machine. Local edits on a throwaway
+        branch are reviewable and revertible, so they do not prompt."""
         if not self.allow_write:
-            return "refused: this agent is read-only. Rerun with --allow-write."
+            return "refused: read-only run. Rerun with --allow-write."
         if self.assume_yes:
             return None
-        print(f"\n{YEL}The model wants to:{RST} {description}")
+        print(f"\n{YEL}The model wants to:{RST} {what}")
         try:
-            reply = input("  Type 'yes' to allow: ").strip()
+            ok = input("  Type 'yes' to allow: ").strip() == "yes"
         except EOFError:
-            reply = ""
-        return None if reply == "yes" else "refused: you declined this action."
+            ok = False
+        return None if ok else "refused: you declined this action."
 
-    # -- read-only ---------------------------------------------------------
+    def current_branch(self):
+        return self._git("rev-parse", "--abbrev-ref", "HEAD")
+
+    def default_branch(self):
+        ref = self._git("symbolic-ref", "refs/remotes/origin/HEAD")
+        if ref.startswith("error"):
+            return "main"
+        return ref.rsplit("/", 1)[-1]
+
+    # -- read --------------------------------------------------------------
 
     def gh_issue_list(self, state="open", limit=20):
-        return self._gh("issue", "list", "--state", str(state),
-                        "--limit", str(limit),
+        return self._gh("issue", "list", "--state", str(state), "--limit", str(limit),
                         "--json", "number,title,state,labels,updatedAt")
 
     def gh_issue_view(self, number):
         return self._gh("issue", "view", str(number),
                         "--json", "number,title,state,body,labels,comments")
-
-    def gh_repo_info(self):
-        return self._gh("repo", "view", "--json",
-                        "name,owner,description,defaultBranchRef")
 
     def list_files(self, path="."):
         full = self._safe_path(path)
@@ -123,8 +126,8 @@ class Tools:
             return "error: path is outside the working directory"
         if not os.path.isdir(full):
             return f"error: not a directory: {path}"
-        entries = sorted(os.listdir(full))
-        return "\n".join(entries) if entries else "(empty)"
+        names = sorted(n for n in os.listdir(full) if n != ".git")
+        return "\n".join(names) or "(empty)"
 
     def read_file(self, path):
         full = self._safe_path(path)
@@ -138,7 +141,81 @@ class Tools:
         except OSError as exc:
             return f"error: {exc}"
 
-    # -- write (gated) -----------------------------------------------------
+    def search_files(self, pattern, path="."):
+        full = self._safe_path(path)
+        if not full:
+            return "error: path is outside the working directory"
+        code, out = run(["git", "grep", "-n", "--", pattern, "--", path], self.workdir)
+        if code != 0:
+            return "no matches"
+        return out
+
+    def git_diff(self):
+        out = self._git("diff")
+        return out or "(no uncommitted changes)"
+
+    # -- write, on an agent branch only ------------------------------------
+
+    def git_branch(self, name):
+        """Always prefixed, always off the default branch. This is the whole
+        containment story: nothing the model does lands on main."""
+        if not self.allow_write:
+            return "refused: read-only run. Rerun with --allow-write."
+        slug = re.sub(r"[^a-zA-Z0-9._/-]+", "-", name).strip("-/") or "work"
+        if not slug.startswith(BRANCH_PREFIX):
+            slug = BRANCH_PREFIX + slug
+        out = self._git("switch", "-c", slug)
+        if out.startswith("error"):
+            out = self._git("switch", slug)
+            if out.startswith("error"):
+                return out
+        self.branch = slug
+        return f"now on branch {slug}"
+
+    def write_file(self, path, content):
+        if not self.allow_write:
+            return "refused: read-only run. Rerun with --allow-write."
+        if not self.branch:
+            return ("refused: not on an agent branch yet. "
+                    "Call git_branch first so the work is reviewable.")
+        full = self._safe_path(path)
+        if not full:
+            return "error: path is outside the working directory"
+        try:
+            os.makedirs(os.path.dirname(full), exist_ok=True)
+            with open(full, "w", encoding="utf-8") as fh:
+                fh.write(content)
+        except OSError as exc:
+            return f"error: {exc}"
+        self.touched.add(path)
+        print(f"{GRN}  wrote{RST} {path} ({len(content)} bytes)")
+        return f"wrote {path}"
+
+    def git_commit(self, message):
+        if not self.allow_write:
+            return "refused: read-only run. Rerun with --allow-write."
+        if not self.branch:
+            return "refused: not on an agent branch."
+        if self.branch == self.default_branch():
+            return "refused: will not commit to the default branch."
+        self._git("add", "-A")
+        out = self._git("commit", "-m", message)
+        return out if not out.startswith("error") else out
+
+    # -- outward facing: these prompt ---------------------------------------
+
+    def gh_pr_create(self, title, body):
+        refusal = self._confirm(f"open a DRAFT pull request titled {title!r}")
+        if refusal:
+            return refusal
+        if not self.branch:
+            return "refused: no agent branch to open a PR from."
+        push = self._git("push", "-u", "origin", self.branch)
+        if push.startswith("error"):
+            return push
+        # Draft, always. A human opens it for review; nothing auto-merges.
+        return self._gh("pr", "create", "--draft", "--title", title, "--body", body,
+                        "--head", self.branch)
 
     def gh_issue_comment(self, number, body):
         refusal = self._confirm(f"comment on issue #{number}:\n\n{body}\n")
@@ -147,75 +224,67 @@ class Tools:
         return self._gh("issue", "comment", str(number), "--body", body) or "comment posted"
 
 
+# name, description, properties, required, needs_write
 SCHEMA = [
-    ("gh_issue_list", "List issues in the GitHub repository.", {
-        "state": {"type": "string", "enum": ["open", "closed", "all"],
-                  "description": "Which issues to list. Defaults to open."},
-        "limit": {"type": "integer", "description": "Maximum number to return."},
-    }, []),
-    ("gh_issue_view", "Read one issue in full, including its body and comments.", {
-        "number": {"type": "integer", "description": "The issue number."},
-    }, ["number"]),
-    ("gh_repo_info", "Get the name, owner and description of the repository.", {}, []),
-    ("list_files", "List files in a directory of the local checkout.", {
-        "path": {"type": "string", "description": "Directory, relative to the repo root."},
-    }, []),
-    ("read_file", "Read a file from the local checkout.", {
-        "path": {"type": "string", "description": "File path, relative to the repo root."},
-    }, ["path"]),
-    ("gh_issue_comment", "Post a comment on an issue. Requires the user's approval.", {
-        "number": {"type": "integer", "description": "The issue number."},
-        "body": {"type": "string", "description": "Markdown body of the comment."},
-    }, ["number", "body"]),
+    ("gh_issue_list", "List issues in the repository.",
+     {"state": {"type": "string", "enum": ["open", "closed", "all"]},
+      "limit": {"type": "integer"}}, [], False),
+    ("gh_issue_view", "Read one issue in full, with its body and comments.",
+     {"number": {"type": "integer"}}, ["number"], False),
+    ("list_files", "List files in a directory of the checkout.",
+     {"path": {"type": "string", "description": "Relative to the repo root."}}, [], False),
+    ("read_file", "Read a file from the checkout.",
+     {"path": {"type": "string"}}, ["path"], False),
+    ("search_files", "Search the checkout for a string. Use this to find where something lives.",
+     {"pattern": {"type": "string"}, "path": {"type": "string"}}, ["pattern"], False),
+    ("git_diff", "Show the uncommitted changes you have made so far.", {}, [], False),
+    ("git_branch", "Create and switch to a working branch. Do this before editing anything.",
+     {"name": {"type": "string", "description": "Short branch name, e.g. issue-12-fix-typo."}},
+     ["name"], True),
+    ("write_file", "Write a file in the checkout. Give the complete new contents.",
+     {"path": {"type": "string"}, "content": {"type": "string"}}, ["path", "content"], True),
+    ("git_commit", "Commit everything you have changed.",
+     {"message": {"type": "string"}}, ["message"], True),
+    ("gh_pr_create", "Open a DRAFT pull request for a human to review.",
+     {"title": {"type": "string"}, "body": {"type": "string"}}, ["title", "body"], True),
+    ("gh_issue_comment", "Post a comment on an issue.",
+     {"number": {"type": "integer"}, "body": {"type": "string"}}, ["number", "body"], True),
 ]
 
 
 def tool_specs(include_write):
-    specs = []
-    for name, desc, props, required in SCHEMA:
-        if not include_write and name.startswith("gh_issue_comment"):
+    out = []
+    for name, desc, props, required, needs_write in SCHEMA:
+        if needs_write and not include_write:
             continue
-        specs.append({
-            "type": "function",
-            "function": {
-                "name": name,
-                "description": desc,
-                "parameters": {
-                    "type": "object",
-                    "properties": props,
-                    "required": required,
-                },
-            },
-        })
-    return specs
+        out.append({"type": "function", "function": {
+            "name": name, "description": desc,
+            "parameters": {"type": "object", "properties": props, "required": required},
+        }})
+    return out
 
 
 # --------------------------------------------------------------------------
-# LM Studio
-# --------------------------------------------------------------------------
 
-def post(path, payload, timeout=300):
+def post(path, payload, timeout=600):
     req = urllib.request.Request(
-        f"{BASE_URL}{path}",
-        data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
-    )
+        f"{BASE_URL}{path}", data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.load(resp)
-    except urllib.error.HTTPError as exc:
-        die(f"{exc.code} from {BASE_URL}{path}: {exc.read().decode()[:400]}")
-    except urllib.error.URLError as exc:
-        die(f"cannot reach {BASE_URL} ({exc.reason}).\n"
-            f"  check:  systemctl status lmstudio-server")
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        die(f"{e.code} from {BASE_URL}{path}: {e.read().decode()[:400]}")
+    except urllib.error.URLError as e:
+        die(f"cannot reach {BASE_URL} ({e.reason})\n  check:  systemctl status lmstudio-server")
 
 
 def loaded_model():
     try:
-        with urllib.request.urlopen(f"{BASE_URL}/models", timeout=10) as resp:
-            data = json.load(resp)
-        models = [m["id"] for m in data.get("data", [])]
-        return models[0] if models else None
+        with urllib.request.urlopen(f"{BASE_URL}/models", timeout=10) as r:
+            data = json.load(r)
+        ids = [m["id"] for m in data.get("data", [])]
+        return ids[0] if ids else None
     except Exception:
         return None
 
@@ -224,13 +293,8 @@ def chat(messages, tools):
     payload = {"messages": messages, "tools": tools, "temperature": 0.2}
     if MODEL:
         payload["model"] = MODEL
-    data = post("/chat/completions", payload)
-    return data["choices"][0]["message"]
+    return post("/chat/completions", payload)["choices"][0]["message"]
 
-
-# --------------------------------------------------------------------------
-# self test
-# --------------------------------------------------------------------------
 
 def selftest():
     say(f"endpoint: {BASE_URL}")
@@ -238,46 +302,44 @@ def selftest():
     if not model:
         die("no model loaded. Try:  lms ps    then    lms load <model>")
     say(f"loaded model: {model}")
-
     say("asking the model to call a tool...")
-    msg = chat(
-        [
-            {"role": "system", "content": "You have tools. Use them rather than guessing."},
-            {"role": "user", "content": "List the open issues in this repository."},
-        ],
-        tool_specs(include_write=False),
-    )
-
+    msg = chat([{"role": "system", "content": "You have tools. Use them rather than guessing."},
+                {"role": "user", "content": "List the open issues in this repository."}],
+               tool_specs(include_write=False))
     calls = msg.get("tool_calls") or []
     if calls:
-        names = ", ".join(c["function"]["name"] for c in calls)
-        print(f"\n{GRN}PASS{RST} the server returned tool_calls: {names}")
-        print("Tool calling works end to end on this machine.")
+        print(f"\n{GRN}PASS{RST} tool_calls returned: "
+              + ", ".join(c["function"]["name"] for c in calls))
         return 0
-
-    print(f"\n{RED}FAIL{RST} no tool_calls came back.")
-    print("The model replied with plain text instead:\n")
+    print(f"\n{RED}FAIL{RST} no tool_calls. The model replied with text:\n")
     print(DIM + (msg.get("content") or "(empty)")[:500] + RST)
-    print("\nGemma 4 emits tool calls as special tokens; the runtime has to parse")
-    print("them into OpenAI-shaped tool_calls. This is the part that tends to lag.")
-    print("Worth checking: LM Studio version, and whether the loaded GGUF ships a")
-    print("chat template with tool support.")
+    print("\nGemma 4 emits tool calls as special tokens; the runtime must parse them")
+    print("into OpenAI-shaped tool_calls. Check the LM Studio version, and whether")
+    print("the loaded GGUF ships a chat template with tool support.")
     return 1
 
 
-# --------------------------------------------------------------------------
+SYSTEM = """You are a careful engineer working on a repository, running locally
+on a Raspberry Pi. You work one issue at a time.
 
-SYSTEM = """You are a terse assistant running locally on a Raspberry Pi.
+How to work:
+1. Read the issue. Use search_files and read_file to find the relevant code.
+   Never guess at file contents or issue text.
+2. Call git_branch before you change anything.
+3. Make the smallest change that addresses the issue. write_file takes the
+   COMPLETE new contents of the file, so read it first.
+4. git_commit with a clear message.
+5. gh_pr_create as a draft, describing what you changed and what you were unsure
+   about.
 
-You have tools for reading a GitHub repository's issues and the local checkout.
 Rules:
-- Use a tool rather than guessing. Never invent issue numbers, titles or file contents.
-- One tool call at a time. Read the result before deciding the next step.
-- When you have enough to answer, answer in plain prose. Be brief.
-- If a tool returns an error, say so plainly instead of retrying blindly."""
+- One tool call at a time. Read each result before the next step.
+- Do not close issues or merge anything. A human reviews your work.
+- If the issue is unclear or too large, say so and stop rather than guessing.
+- Be brief in prose."""
 
 
-def run(prompt, tools_impl, include_write):
+def agent_loop(prompt, tools, include_write):
     messages = [{"role": "system", "content": SYSTEM},
                 {"role": "user", "content": prompt}]
     specs = tool_specs(include_write)
@@ -285,11 +347,9 @@ def run(prompt, tools_impl, include_write):
     for turn in range(MAX_TURNS):
         msg = chat(messages, specs)
         calls = msg.get("tool_calls") or []
-
         if not calls:
             print("\n" + (msg.get("content") or "(no answer)").strip())
-            return 0
-
+            break
         messages.append(msg)
         for call in calls:
             name = call["function"]["name"]
@@ -297,52 +357,75 @@ def run(prompt, tools_impl, include_write):
                 args = json.loads(call["function"].get("arguments") or "{}")
             except json.JSONDecodeError:
                 result = "error: arguments were not valid JSON"
-                args = {}
             else:
-                fn = getattr(tools_impl, name, None)
+                fn = getattr(tools, name, None)
                 if fn is None:
                     result = f"error: no such tool: {name}"
                 else:
-                    shown = ", ".join(f"{k}={v!r}" for k, v in args.items())
+                    shown = ", ".join(
+                        f"{k}={(v[:40] + '…') if isinstance(v, str) and len(v) > 40 else v!r}"
+                        for k, v in args.items())
                     print(f"{DIM}  [{turn + 1}] {name}({shown}){RST}")
                     try:
                         result = fn(**args)
                     except TypeError as exc:
                         result = f"error: wrong arguments for {name}: {exc}"
-
             if len(result) > MAX_TOOL_CHARS:
                 result = result[:MAX_TOOL_CHARS] + "\n...(truncated)"
+            messages.append({"role": "tool", "tool_call_id": call.get("id", name),
+                             "content": result})
+    else:
+        warn(f"gave up after {MAX_TURNS} turns")
 
-            messages.append({
-                "role": "tool",
-                "tool_call_id": call.get("id", name),
-                "content": result,
-            })
-
-    warn(f"gave up after {MAX_TURNS} turns without a final answer")
-    return 1
+    if tools.branch:
+        print(f"\n{BOLD}Review it:{RST}")
+        print(f"  git -C {tools.workdir} diff {tools.default_branch()}...{tools.branch}")
+        print(f"  gh pr view --web")
+        print(f"\nNothing was merged or closed. That is your call.")
+    return 0
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Local model + gh, no MCP, no cloud.")
-    ap.add_argument("prompt", nargs="?", help="what you want done")
-    ap.add_argument("--selftest", action="store_true",
-                    help="check that tool calling works, then exit")
+    ap = argparse.ArgumentParser(description="Work GitHub issues with the local model.")
+    ap.add_argument("prompt", nargs="?")
+    ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--issue", type=int, help="work this issue end to end")
     ap.add_argument("--repo", help="owner/name; defaults to the checkout's remote")
-    ap.add_argument("-C", "--workdir", default=".", help="local checkout to work in")
+    ap.add_argument("-C", "--workdir", default=".")
     ap.add_argument("--allow-write", action="store_true",
-                    help="permit tools that change something (still confirmed)")
-    ap.add_argument("--yes", action="store_true",
-                    help="skip the per-write confirmation prompt")
+                    help="permit branching, editing, committing and opening a draft PR")
+    ap.add_argument("--yes", action="store_true", help="skip confirmation for PRs and comments")
+    ap.add_argument("--force", action="store_true", help="proceed even with a dirty tree")
     args = ap.parse_args()
 
     if args.selftest:
         sys.exit(selftest())
-    if not args.prompt:
-        ap.error("give a prompt, or --selftest")
+    if not args.prompt and args.issue is None:
+        ap.error("give a prompt, --issue N, or --selftest")
 
-    tools_impl = Tools(args.workdir, args.repo, args.allow_write, args.yes)
-    sys.exit(run(args.prompt, tools_impl, args.allow_write))
+    tools = Tools(args.workdir, args.repo, args.allow_write, args.yes)
+
+    if args.allow_write:
+        # Mixing the model's edits into your work in progress makes the diff
+        # useless as a review artefact.
+        dirty = tools._git("status", "--porcelain")
+        if dirty and not dirty.startswith("error") and not args.force:
+            die("the working tree has uncommitted changes.\n"
+                "  Commit or stash them first, so the review diff is only the agent's work.\n"
+                "  Or pass --force.")
+
+    if args.issue is not None:
+        prompt = (f"Work issue #{args.issue}. Start by reading it with gh_issue_view, "
+                  f"then find the relevant code before changing anything. "
+                  f"Use branch name issue-{args.issue}.")
+        if args.prompt:
+            prompt += f"\n\nExtra instruction from the user: {args.prompt}"
+        if not args.allow_write:
+            warn("read-only: add --allow-write to let it branch, edit and open a draft PR")
+    else:
+        prompt = args.prompt
+
+    sys.exit(agent_loop(prompt, tools, args.allow_write))
 
 
 if __name__ == "__main__":

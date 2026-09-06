@@ -157,49 +157,65 @@ offload:
 
 More RAM raises the ceiling on model size, not the speed.
 
-## Working from GitHub issues, locally
+## Working issues with the local model
 
-`bin/pi5-agent` gives the local model a small set of tools backed by the `gh`
-CLI. Everything stays on the Pi — no MCP server, no cloud model.
+`bin/pi5-agent` is a single self-contained file — stdlib Python, no pip deps —
+that drives the local model through `gh` and `git`. Drop it into any repo's
+agent harness. Inference never leaves the Pi.
 
 ```sh
-make llm-test                                   # does tool calling work at all?
-pi5-agent "summarise my open issues"
-pi5-agent --repo owner/name "what does issue 12 want"
-pi5-agent --allow-write "reply to issue 12 with a plan"
+make llm-test                        # can the model call tools at all?
+pi5-agent --issue 12 --allow-write   # read it, branch, work it, open a draft PR
+pi5-agent "summarise open issues"    # read-only question
 ```
 
-**Check `make llm-test` first.** Gemma 4 emits tool calls as trained special
-tokens (`<|tool_call|>`), and the *runtime* has to turn those into
-OpenAI-shaped `tool_calls`. That parsing is the part that lags behind model
-releases — it has been reported broken in other runtimes. The self-test tells
-you in two seconds whether your LM Studio build handles it, and catches it
-regressing after an update.
+`--issue 12` seeds the whole workflow: read the issue, find the relevant code,
+branch, edit, commit, open a **draft** PR describing what it changed and what it
+was unsure about. Then it prints the diff command and stops.
 
-### Why six tools and not thirty
+### The containment boundary
 
-`gh_issue_list`, `gh_issue_view`, `gh_repo_info`, `list_files`, `read_file`, and
-`gh_issue_comment`. Tool-choice accuracy falls off sharply as the menu grows,
-and E2B is a 2B-effective model. A short menu it picks correctly beats a long
-one it guesses between — which is also the argument against pointing a GitHub
-MCP server at it, since those expose dozens of tools at once.
+Not "read nothing" — the point is to get work done. The boundary is **nothing
+lands anywhere you have to undo**:
 
-### What it will not do
+- **Never the default branch.** Every edit requires an `agent/`-prefixed branch
+  first; `write_file` refuses until `git_branch` has run, and `git_commit`
+  refuses on the default branch.
+- **PRs are always drafts**, and opening one prompts. Nothing merges.
+- **It never closes issues.** That is explicitly not in the tool list — you
+  review and close.
+- **Refuses to start on a dirty tree** (unless `--force`), so the review diff is
+  the agent's work and not tangled with your own.
+- `gh` and `git` run with fixed argv, never a shell string.
+- File access is confined to the checkout, and `.git/` internals are off limits.
 
-- **Writes are off** unless you pass `--allow-write`, and each one is printed in
-  full and confirmed before it happens.
-- **`gh` is invoked with a fixed argv**, never a shell string, so nothing the
-  model emits is interpreted as shell syntax.
-- **File reads are confined** to the working directory.
-- **Tool output is truncated** to `AGENT_MAX_TOOL_CHARS` (4000), because the
-  server loads at an 8192 context and one long issue body would otherwise eat it.
+Local edits on a throwaway branch do *not* prompt — they are reviewable and
+revertible, so per-write confirmation would just be noise. Only the two outward
+facing actions, opening a PR and commenting on an issue, ask first.
 
-Use a fine-grained, read-only token scoped to the repos you care about. Then the
-worst a confused model can do is waste an API call.
+### Tools
 
-Expect it to be clumsy. A 2B model doing multi-step tool use gets argument names
-wrong and sometimes calls a tool when it should just answer. It is useful for
-reading and summarising; it is not going to close your issues for you.
+Read: `gh_issue_list`, `gh_issue_view`, `list_files`, `read_file`,
+`search_files`, `git_diff`. Write (needs `--allow-write`): `git_branch`,
+`write_file`, `git_commit`, `gh_pr_create`, `gh_issue_comment`.
+
+Short on purpose. Tool-choice accuracy falls off as the menu grows and E2B is a
+2B-effective model — which is also the case against pointing a GitHub MCP server
+at it, since those expose dozens of tools at once.
+
+### Check tool calling first
+
+Gemma 4 emits tool calls as trained special tokens (`<|tool_call|>`) and the
+runtime has to parse those into OpenAI-shaped `tool_calls`. That parsing lags
+model releases and has been reported broken elsewhere. `make llm-test` settles
+it in two seconds, and catches it regressing after an LM Studio update.
+
+### Expectations
+
+A 2B model will get argument names wrong, occasionally rewrite more of a file
+than it needed to, and sometimes stall. `write_file` takes complete file
+contents, so it works best on small files and focused issues. Treat the draft PR
+as a first pass to review, not a finished change — which is the workflow anyway.
 
 ## Surviving an OS change
 
