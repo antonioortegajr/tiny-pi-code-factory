@@ -1,0 +1,3 @@
+# Runtime state: detection results, backups of files we replaced, run markers.
+state/
+settings.local.env

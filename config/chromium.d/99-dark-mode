@@ -1,0 +1,4 @@
+# Installed to /etc/chromium.d/, which Debian's chromium launcher sources on every
+# start. Living here rather than in a desktop file means it survives package
+# upgrades and applies however Chromium is launched.
+export CHROMIUM_FLAGS="${CHROMIUM_FLAGS} --force-dark-mode --enable-features=WebContentsForceDark"
