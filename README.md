@@ -62,6 +62,7 @@ cd /mnt/ssd/my-pi5-setup && make all
 | `make dark-apps` | VS Code, Chromium, Firefox, Thonny, Geany |
 | `make dark-system` | login greeter, text console, `/etc/skel` for future accounts |
 | `make llm` | fast path to a working local model, skipping the slow apt upgrade |
+| `make llm-test` | check the local model can actually call tools |
 | `make network` | verify the Pi can reach github.com, join Wi-Fi if configured |
 | `make base` | updates, hostname, timezone, locale, core packages |
 | `make storage` | boot order check, HAT SSD mount, zram, trim |
@@ -155,6 +156,50 @@ offload:
 | larger | don't |
 
 More RAM raises the ceiling on model size, not the speed.
+
+## Working from GitHub issues, locally
+
+`bin/pi5-agent` gives the local model a small set of tools backed by the `gh`
+CLI. Everything stays on the Pi — no MCP server, no cloud model.
+
+```sh
+make llm-test                                   # does tool calling work at all?
+pi5-agent "summarise my open issues"
+pi5-agent --repo owner/name "what does issue 12 want"
+pi5-agent --allow-write "reply to issue 12 with a plan"
+```
+
+**Check `make llm-test` first.** Gemma 4 emits tool calls as trained special
+tokens (`<|tool_call|>`), and the *runtime* has to turn those into
+OpenAI-shaped `tool_calls`. That parsing is the part that lags behind model
+releases — it has been reported broken in other runtimes. The self-test tells
+you in two seconds whether your LM Studio build handles it, and catches it
+regressing after an update.
+
+### Why six tools and not thirty
+
+`gh_issue_list`, `gh_issue_view`, `gh_repo_info`, `list_files`, `read_file`, and
+`gh_issue_comment`. Tool-choice accuracy falls off sharply as the menu grows,
+and E2B is a 2B-effective model. A short menu it picks correctly beats a long
+one it guesses between — which is also the argument against pointing a GitHub
+MCP server at it, since those expose dozens of tools at once.
+
+### What it will not do
+
+- **Writes are off** unless you pass `--allow-write`, and each one is printed in
+  full and confirmed before it happens.
+- **`gh` is invoked with a fixed argv**, never a shell string, so nothing the
+  model emits is interpreted as shell syntax.
+- **File reads are confined** to the working directory.
+- **Tool output is truncated** to `AGENT_MAX_TOOL_CHARS` (4000), because the
+  server loads at an 8192 context and one long issue body would otherwise eat it.
+
+Use a fine-grained, read-only token scoped to the repos you care about. Then the
+worst a confused model can do is waste an API call.
+
+Expect it to be clumsy. A 2B model doing multi-step tool use gets argument names
+wrong and sometimes calls a tool when it should just answer. It is useful for
+reading and summarising; it is not going to close your issues for you.
 
 ## Surviving an OS change
 

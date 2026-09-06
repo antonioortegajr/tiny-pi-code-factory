@@ -8,7 +8,7 @@ SHELL := /bin/bash
 S     := ./scripts
 ARGS  ?=
 
-.PHONY: all dark base storage ssd-state dev harden preflight apps app network mirror llm \
+.PHONY: all dark base storage ssd-state dev harden preflight apps app network mirror llm llm-test \
         dark-desktop dark-terminal dark-apps dark-system \
         capture capture-theme apply-captured restore-packages check help
 
@@ -39,6 +39,10 @@ llm: preflight
 	@echo
 	@echo "Server is up. Next:  lms get --help   then   lms load <model>"
 	@echo "Finish the rest whenever:  make all"
+
+## llm-test         check the local model can actually call tools
+llm-test:
+	@bin/pi5-agent --selftest
 
 ## network          verify the Pi can reach github.com, join Wi-Fi if configured
 network: preflight

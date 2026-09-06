@@ -1,0 +1,349 @@
+#!/usr/bin/env python3
+"""Drive the local LM Studio model through a small, fixed set of tools.
+
+No MCP, no cloud, no pip dependencies - stdlib only, talking to LM Studio's
+OpenAI-compatible endpoint on this machine.
+
+The tool menu is deliberately tiny. Tool-choice accuracy falls off badly as the
+menu grows, and Gemma 4 E2B is a 2B-effective model; six well-described tools it
+picks correctly beat thirty it guesses between.
+
+Usage:
+  pi5-agent --selftest                 check the model can call tools at all
+  pi5-agent "summarise my open issues"
+  pi5-agent --repo owner/name "what is issue 12 asking for"
+  pi5-agent --allow-write "reply to issue 12 with a plan"
+
+Writes are refused unless --allow-write is passed, and each one is printed and
+confirmed before it happens.
+"""
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+
+BASE_URL = os.environ.get("LMS_BASE_URL", "http://127.0.0.1:1234/v1")
+MODEL = os.environ.get("LMS_MODEL_ID", "")  # empty = whatever is loaded
+MAX_TURNS = int(os.environ.get("AGENT_MAX_TURNS", "8"))
+# Tool output has to fit the context alongside everything else. The server loads
+# at 8192 by default, so a single issue body cannot be allowed to eat it.
+MAX_TOOL_CHARS = int(os.environ.get("AGENT_MAX_TOOL_CHARS", "4000"))
+
+DIM, BOLD, RED, GRN, YEL, BLU, RST = (
+    ("\033[2m", "\033[1m", "\033[31m", "\033[32m", "\033[33m", "\033[34m", "\033[0m")
+    if sys.stdout.isatty() else ("",) * 7
+)
+
+
+def say(msg):
+    print(f"{BLU}==>{RST} {msg}")
+
+
+def warn(msg):
+    print(f"{YEL}!{RST} {msg}", file=sys.stderr)
+
+
+def die(msg, code=1):
+    print(f"{RED}{BOLD}ERROR:{RST} {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+# --------------------------------------------------------------------------
+# tools
+# --------------------------------------------------------------------------
+
+class Tools:
+    def __init__(self, workdir, repo=None, allow_write=False, assume_yes=False):
+        self.workdir = os.path.realpath(workdir)
+        self.repo = repo
+        self.allow_write = allow_write
+        self.assume_yes = assume_yes
+
+    # -- helpers -----------------------------------------------------------
+
+    def _gh(self, *args):
+        """Run gh with a fixed argv. Never a shell string, so nothing the model
+        emits can be interpreted as shell syntax."""
+        cmd = ["gh", *args]
+        if self.repo and "--repo" not in args and args[0] in ("issue", "pr", "repo"):
+            cmd += ["--repo", self.repo]
+        try:
+            out = subprocess.run(
+                cmd, cwd=self.workdir, capture_output=True, text=True, timeout=60
+            )
+        except FileNotFoundError:
+            return "error: the gh CLI is not installed (make app APP=gh)"
+        except subprocess.TimeoutExpired:
+            return "error: gh timed out"
+        if out.returncode != 0:
+            return f"error: {out.stderr.strip() or 'gh failed'}"
+        return out.stdout.strip()
+
+    def _safe_path(self, path):
+        """Confine file access to the working directory."""
+        full = os.path.realpath(os.path.join(self.workdir, path))
+        if full != self.workdir and not full.startswith(self.workdir + os.sep):
+            return None
+        return full
+
+    def _confirm(self, description):
+        if not self.allow_write:
+            return "refused: this agent is read-only. Rerun with --allow-write."
+        if self.assume_yes:
+            return None
+        print(f"\n{YEL}The model wants to:{RST} {description}")
+        try:
+            reply = input("  Type 'yes' to allow: ").strip()
+        except EOFError:
+            reply = ""
+        return None if reply == "yes" else "refused: you declined this action."
+
+    # -- read-only ---------------------------------------------------------
+
+    def gh_issue_list(self, state="open", limit=20):
+        return self._gh("issue", "list", "--state", str(state),
+                        "--limit", str(limit),
+                        "--json", "number,title,state,labels,updatedAt")
+
+    def gh_issue_view(self, number):
+        return self._gh("issue", "view", str(number),
+                        "--json", "number,title,state,body,labels,comments")
+
+    def gh_repo_info(self):
+        return self._gh("repo", "view", "--json",
+                        "name,owner,description,defaultBranchRef")
+
+    def list_files(self, path="."):
+        full = self._safe_path(path)
+        if not full:
+            return "error: path is outside the working directory"
+        if not os.path.isdir(full):
+            return f"error: not a directory: {path}"
+        entries = sorted(os.listdir(full))
+        return "\n".join(entries) if entries else "(empty)"
+
+    def read_file(self, path):
+        full = self._safe_path(path)
+        if not full:
+            return "error: path is outside the working directory"
+        if not os.path.isfile(full):
+            return f"error: no such file: {path}"
+        try:
+            with open(full, encoding="utf-8", errors="replace") as fh:
+                return fh.read()
+        except OSError as exc:
+            return f"error: {exc}"
+
+    # -- write (gated) -----------------------------------------------------
+
+    def gh_issue_comment(self, number, body):
+        refusal = self._confirm(f"comment on issue #{number}:\n\n{body}\n")
+        if refusal:
+            return refusal
+        return self._gh("issue", "comment", str(number), "--body", body) or "comment posted"
+
+
+SCHEMA = [
+    ("gh_issue_list", "List issues in the GitHub repository.", {
+        "state": {"type": "string", "enum": ["open", "closed", "all"],
+                  "description": "Which issues to list. Defaults to open."},
+        "limit": {"type": "integer", "description": "Maximum number to return."},
+    }, []),
+    ("gh_issue_view", "Read one issue in full, including its body and comments.", {
+        "number": {"type": "integer", "description": "The issue number."},
+    }, ["number"]),
+    ("gh_repo_info", "Get the name, owner and description of the repository.", {}, []),
+    ("list_files", "List files in a directory of the local checkout.", {
+        "path": {"type": "string", "description": "Directory, relative to the repo root."},
+    }, []),
+    ("read_file", "Read a file from the local checkout.", {
+        "path": {"type": "string", "description": "File path, relative to the repo root."},
+    }, ["path"]),
+    ("gh_issue_comment", "Post a comment on an issue. Requires the user's approval.", {
+        "number": {"type": "integer", "description": "The issue number."},
+        "body": {"type": "string", "description": "Markdown body of the comment."},
+    }, ["number", "body"]),
+]
+
+
+def tool_specs(include_write):
+    specs = []
+    for name, desc, props, required in SCHEMA:
+        if not include_write and name.startswith("gh_issue_comment"):
+            continue
+        specs.append({
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": desc,
+                "parameters": {
+                    "type": "object",
+                    "properties": props,
+                    "required": required,
+                },
+            },
+        })
+    return specs
+
+
+# --------------------------------------------------------------------------
+# LM Studio
+# --------------------------------------------------------------------------
+
+def post(path, payload, timeout=300):
+    req = urllib.request.Request(
+        f"{BASE_URL}{path}",
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.load(resp)
+    except urllib.error.HTTPError as exc:
+        die(f"{exc.code} from {BASE_URL}{path}: {exc.read().decode()[:400]}")
+    except urllib.error.URLError as exc:
+        die(f"cannot reach {BASE_URL} ({exc.reason}).\n"
+            f"  check:  systemctl status lmstudio-server")
+
+
+def loaded_model():
+    try:
+        with urllib.request.urlopen(f"{BASE_URL}/models", timeout=10) as resp:
+            data = json.load(resp)
+        models = [m["id"] for m in data.get("data", [])]
+        return models[0] if models else None
+    except Exception:
+        return None
+
+
+def chat(messages, tools):
+    payload = {"messages": messages, "tools": tools, "temperature": 0.2}
+    if MODEL:
+        payload["model"] = MODEL
+    data = post("/chat/completions", payload)
+    return data["choices"][0]["message"]
+
+
+# --------------------------------------------------------------------------
+# self test
+# --------------------------------------------------------------------------
+
+def selftest():
+    say(f"endpoint: {BASE_URL}")
+    model = loaded_model()
+    if not model:
+        die("no model loaded. Try:  lms ps    then    lms load <model>")
+    say(f"loaded model: {model}")
+
+    say("asking the model to call a tool...")
+    msg = chat(
+        [
+            {"role": "system", "content": "You have tools. Use them rather than guessing."},
+            {"role": "user", "content": "List the open issues in this repository."},
+        ],
+        tool_specs(include_write=False),
+    )
+
+    calls = msg.get("tool_calls") or []
+    if calls:
+        names = ", ".join(c["function"]["name"] for c in calls)
+        print(f"\n{GRN}PASS{RST} the server returned tool_calls: {names}")
+        print("Tool calling works end to end on this machine.")
+        return 0
+
+    print(f"\n{RED}FAIL{RST} no tool_calls came back.")
+    print("The model replied with plain text instead:\n")
+    print(DIM + (msg.get("content") or "(empty)")[:500] + RST)
+    print("\nGemma 4 emits tool calls as special tokens; the runtime has to parse")
+    print("them into OpenAI-shaped tool_calls. This is the part that tends to lag.")
+    print("Worth checking: LM Studio version, and whether the loaded GGUF ships a")
+    print("chat template with tool support.")
+    return 1
+
+
+# --------------------------------------------------------------------------
+
+SYSTEM = """You are a terse assistant running locally on a Raspberry Pi.
+
+You have tools for reading a GitHub repository's issues and the local checkout.
+Rules:
+- Use a tool rather than guessing. Never invent issue numbers, titles or file contents.
+- One tool call at a time. Read the result before deciding the next step.
+- When you have enough to answer, answer in plain prose. Be brief.
+- If a tool returns an error, say so plainly instead of retrying blindly."""
+
+
+def run(prompt, tools_impl, include_write):
+    messages = [{"role": "system", "content": SYSTEM},
+                {"role": "user", "content": prompt}]
+    specs = tool_specs(include_write)
+
+    for turn in range(MAX_TURNS):
+        msg = chat(messages, specs)
+        calls = msg.get("tool_calls") or []
+
+        if not calls:
+            print("\n" + (msg.get("content") or "(no answer)").strip())
+            return 0
+
+        messages.append(msg)
+        for call in calls:
+            name = call["function"]["name"]
+            try:
+                args = json.loads(call["function"].get("arguments") or "{}")
+            except json.JSONDecodeError:
+                result = "error: arguments were not valid JSON"
+                args = {}
+            else:
+                fn = getattr(tools_impl, name, None)
+                if fn is None:
+                    result = f"error: no such tool: {name}"
+                else:
+                    shown = ", ".join(f"{k}={v!r}" for k, v in args.items())
+                    print(f"{DIM}  [{turn + 1}] {name}({shown}){RST}")
+                    try:
+                        result = fn(**args)
+                    except TypeError as exc:
+                        result = f"error: wrong arguments for {name}: {exc}"
+
+            if len(result) > MAX_TOOL_CHARS:
+                result = result[:MAX_TOOL_CHARS] + "\n...(truncated)"
+
+            messages.append({
+                "role": "tool",
+                "tool_call_id": call.get("id", name),
+                "content": result,
+            })
+
+    warn(f"gave up after {MAX_TURNS} turns without a final answer")
+    return 1
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Local model + gh, no MCP, no cloud.")
+    ap.add_argument("prompt", nargs="?", help="what you want done")
+    ap.add_argument("--selftest", action="store_true",
+                    help="check that tool calling works, then exit")
+    ap.add_argument("--repo", help="owner/name; defaults to the checkout's remote")
+    ap.add_argument("-C", "--workdir", default=".", help="local checkout to work in")
+    ap.add_argument("--allow-write", action="store_true",
+                    help="permit tools that change something (still confirmed)")
+    ap.add_argument("--yes", action="store_true",
+                    help="skip the per-write confirmation prompt")
+    args = ap.parse_args()
+
+    if args.selftest:
+        sys.exit(selftest())
+    if not args.prompt:
+        ap.error("give a prompt, or --selftest")
+
+    tools_impl = Tools(args.workdir, args.repo, args.allow_write, args.yes)
+    sys.exit(run(args.prompt, tools_impl, args.allow_write))
+
+
+if __name__ == "__main__":
+    main()
