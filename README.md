@@ -8,6 +8,11 @@ by default. Trixie (labwc) and Bookworm (wayfire) are both handled; the scripts
 detect which one they are on. Boot is from USB, with an SSD on a HAT as extra
 storage.
 
+> **Not yet run on real hardware.** Every script is syntax-checked and dry-run
+> tested, but nothing here has executed on a Pi. Start with `DRY_RUN=1 make all`,
+> and expect the LM Studio CLI flags and the panel colour keys to be the first
+> things that need correcting. `make doctor` reports what actually works.
+
 ## Use it
 
 This repo is **private**, so an anonymous `curl` gets a 404 page rather than a
@@ -33,6 +38,31 @@ runs `make all`.
 
 Use a **fine-grained token, read-only, scoped to this repo alone**. It sits in
 plain text on a FAT partition, so it should be worth as little as possible.
+
+### If you would rather clone it yourself
+
+Perfectly fine, and probably simplest if you are already SSHed in from your Mac.
+GitHub accepts your username plus a personal access token as the password:
+
+```sh
+git clone https://github.com/antonioortegajr/my-pi5-setup.git
+cd my-pi5-setup
+DRY_RUN=1 make all      # read this first
+make all
+```
+
+Afterwards, check the remote did not keep your token:
+
+```sh
+git remote -v           # should NOT contain your token
+```
+
+If it does, scrub it — and consider switching to SSH, since `make ssd-state`
+puts `~/.ssh` on the SSD and the key then survives every future reflash:
+
+```sh
+git remote set-url origin git@github.com:antonioortegajr/my-pi5-setup.git
+```
 
 ### If you would rather curl it
 
@@ -151,7 +181,7 @@ screen attached to the Pi.
 Third-party software is à la carte. `settings.env` lists what you want:
 
 ```sh
-APPS="lm-studio open-webui"
+APPS="lm-studio gh opencode open-webui"
 ```
 
 Each name maps to `apps/<name>.sh`, which defines one idempotent `app_install()`.
@@ -185,8 +215,8 @@ Two interchangeable backends. Both expose an OpenAI-compatible endpoint, so Open
 WebUI and `pi5-agent` work against either:
 
 ```sh
-APPS="lm-studio gh open-webui"     # default
-APPS="ollama gh open-webui"        # Ollama instead
+APPS="lm-studio gh opencode open-webui"   # default
+APPS="ollama gh opencode open-webui"      # Ollama instead
 make llm LLM_APP=ollama            # fast path, either way
 ```
 
