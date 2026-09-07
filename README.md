@@ -84,6 +84,38 @@ and needs nothing downloaded:
 cd /mnt/ssd/my-pi5-setup && make all
 ```
 
+## Raspberry Pi OS Lite
+
+Lite works, and for this particular setup it is arguably the better choice.
+`00-preflight.sh` sets `HAS_DESKTOP=0` and the desktop scripts stand down on
+their own — nothing to configure.
+
+| Stage | On Lite |
+| --- | --- |
+| `dark-desktop` | skipped entirely — no GTK, no panel, no compositor |
+| `dark-apps` | skipped — no Chromium, VS Code, Thonny or Geany |
+| `dark-system` | greeter skipped (no lightdm); **console palette and `/etc/skel` still apply** |
+| `dark-terminal` | **fully applies** — `LS_COLORS`, bat/fzf/tmux/neovim. LXTerminal is skipped |
+| everything else | unchanged |
+
+So `make dark` shrinks to the console and the shell, which on a headless box is
+all "dark theme" can mean anyway.
+
+**The upside is RAM.** The desktop costs roughly 0.5–1 GB, and on an 8 GB Pi with
+no GPU to offload to, that is memory the model could be using. Every part of
+what this repo builds is headless already: the LM Studio server, Open WebUI
+browsed from another machine, and `pi5-agent` over SSH. None of it needs a
+screen attached to the Pi.
+
+**Two things to watch:**
+
+- LM Studio's installer is the one component not verified on a minimal image. If
+  it pulls in a shared library the desktop image happened to already have, the
+  install will say so — `apps/lm-studio.sh` reports the failure rather than
+  carrying on.
+- Lite has less preinstalled in general. `bootstrap.sh` installs `git` and `curl`
+  if they are missing, and `BASE_PACKAGES` covers the rest.
+
 ## Targets
 
 | Target | What it does |

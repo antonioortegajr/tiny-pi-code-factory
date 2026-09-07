@@ -37,6 +37,17 @@ if [ -d "$SSD_REPO/.git" ] || [ -f "$SSD_REPO/Makefile" ]; then
 	exec make "$TARGET"
 fi
 
+# Lite images are minimal; do not assume either of these is present.
+missing=""
+command -v git  >/dev/null 2>&1 || missing="$missing git"
+command -v curl >/dev/null 2>&1 || missing="$missing curl"
+if [ -n "$missing" ]; then
+	say "installing:$missing"
+	sudo apt-get update -qq
+	# shellcheck disable=SC2086
+	sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $missing
+fi
+
 # --- otherwise we need the network ----------------------------------------
 if ! curl -fsS --max-time 10 -o /dev/null https://github.com 2>/dev/null; then
 	warn "cannot reach github.com"
@@ -54,12 +65,6 @@ if ! curl -fsS --max-time 10 -o /dev/null https://github.com 2>/dev/null; then
 
 MSG
 	exit 1
-fi
-
-if ! command -v git >/dev/null 2>&1; then
-	say "installing git"
-	sudo apt-get update -qq
-	sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git
 fi
 
 # Find a token without making anyone type one. The boot partition is FAT and
