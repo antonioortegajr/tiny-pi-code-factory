@@ -161,6 +161,7 @@ screen attached to the Pi.
 | `make llm` | fast path to a working local model, skipping the slow apt upgrade |
 | `make llm-test` | prove the local AI works: inference, speed, tool calling |
 | `make doctor` | check the whole chain and say what to fix |
+| `make queue` | work every GitHub issue labelled `pi-agent`, opening draft PRs |
 | `make network` | verify the Pi can reach github.com, join Wi-Fi if configured |
 | `make base` | updates, hostname, timezone, locale, core packages |
 | `make storage` | boot order check, HAT SSD mount, zram, trim |
@@ -230,8 +231,12 @@ parsing is the part that lags a model's release. Ollama's parser for the Hermes
 `<tool_call>` format has been in place for a long time, and Hermes 3 is trained
 for function calling.
 
-Default is **`hermes3:3b`** — 2.0 GB, comfortable on 8 GB, tool-capable.
-`hermes3:8b` (4.7 GB) fits too but runs at ~2–3 tok/s. Set `OLLAMA_MODEL`.
+Default is **`qwen3.5:4b-q4_K_M`** — about 2.5 GB, and Qwen3.5 is built for
+agentic coding, which is what the issue queue asks of it.
+
+If tool calling misbehaves, fall back to **`hermes3:3b`** (2.0 GB): smaller, and
+Ollama has parsed the Hermes `<tool_call>` format for years. `hermes3:8b`
+(4.7 GB) fits but runs at ~2–3 tok/s. Set `OLLAMA_MODEL`.
 
 ```sh
 make app APP=ollama
@@ -336,6 +341,35 @@ Two, with different appetites for risk.
 Issues and a checkout, writes only on an `agent/` branch, opens draft PRs, never
 merges or closes. Predictable on a small model because the tool menu is short.
 Covered below.
+
+### Label-driven queue
+
+Tag an issue **`pi-agent`** and the Pi will pick it up:
+
+```sh
+make queue                        # list what it would work - read-only
+make queue ARGS=--allow-write     # actually work them
+```
+
+For each labelled issue it branches, edits, commits, opens a **draft PR**, then
+relabels the issue `pi-agent-done` and comments with the PR link. Failures get
+`pi-agent-failed` and a comment saying no PR was opened. Nothing is merged or
+closed — that stays yours.
+
+Idempotence comes from two places: the label swap, and the branch. An issue
+whose `agent/issue-N` branch already exists on `origin` is treated as attempted
+and skipped, so a rerun after a crash does not duplicate work. Each issue starts
+from a clean default branch, or its diff would include the previous one's.
+
+Run it on a schedule if you like — it is just a command:
+
+```sh
+# crontab -e
+*/30 * * * * cd ~/GitHub/my-pi5-setup && make queue ARGS=--allow-write >> /tmp/queue.log 2>&1
+```
+
+Write issues for it accordingly: small, specific, one file where possible. A 4B
+model will not work a vague ticket, and `write_file` replaces whole files.
 
 ### `opencode` — terminal coding agent
 

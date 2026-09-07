@@ -62,7 +62,7 @@ app_install() {
 	# 'make llm LLM_APP=ollama' sets LLM_FAST=1, meaning "pull the default now".
 	local to_pull="${OLLAMA_PULL:-}"
 	if [ -z "$to_pull" ] && [ "${LLM_FAST:-0}" = "1" ]; then
-		to_pull="${OLLAMA_MODEL:-hermes3:3b}"
+		to_pull="${OLLAMA_MODEL:-qwen3.5:4b-q4_K_M}"
 	fi
 
 	if [ -n "$to_pull" ]; then
@@ -88,9 +88,10 @@ app_install() {
 			fi
 		done
 	else
-		log "no models pulled. Tool-capable choices for an 8 GB Pi:"
-		log "  ollama pull hermes3:3b       2.0 GB, comfortable - the default"
-		log "  ollama pull hermes3:8b       4.7 GB, fits but slow (~2-3 tok/s)"
+		log "no models pulled. Choices for an 8 GB Pi:"
+		log "  ollama pull qwen3.5:4b-q4_K_M   ~2.5 GB, agentic coding - the default"
+		log "  ollama pull hermes3:3b          2.0 GB, fallback if tool calls misbehave"
+		log "  ollama pull hermes3:8b          4.7 GB, fits but slow (~2-3 tok/s)"
 		log "set OLLAMA_MODEL or OLLAMA_PULL in settings.local.env to automate it"
 	fi
 

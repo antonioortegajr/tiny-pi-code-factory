@@ -8,6 +8,7 @@ tool layer.
 
   pi5-agent --selftest              can the model call tools at all?
   pi5-agent --backend ollama ...    talk to Ollama instead of LM Studio
+  pi5-agent --queue --allow-write   work every issue labelled pi-agent
   pi5-agent --issue 12              read issue 12, branch, work it, open a draft PR
   pi5-agent "summarise open issues" read-only question
 
@@ -73,6 +74,7 @@ class Tools:
         self.assume_yes = assume_yes
         self.branch = None      # set once we switch to an agent branch
         self.touched = set()
+        self.pr_url = ""        # set when a draft PR is actually opened
 
     # -- helpers -----------------------------------------------------------
 
@@ -220,8 +222,13 @@ class Tools:
         if push.startswith("error"):
             return push
         # Draft, always. A human opens it for review; nothing auto-merges.
-        return self._gh("pr", "create", "--draft", "--title", title, "--body", body,
-                        "--head", self.branch)
+        out = self._gh("pr", "create", "--draft", "--title", title, "--body", body,
+                       "--head", self.branch)
+        if not out.startswith("error"):
+            for line in out.splitlines():
+                if line.startswith("http"):
+                    self.pr_url = line.strip()
+        return out
 
     def gh_issue_comment(self, number, body):
         refusal = self._confirm(f"comment on issue #{number}:\n\n{body}\n")
@@ -444,6 +451,98 @@ def agent_loop(prompt, tools, include_write):
     return 0
 
 
+LABEL = os.environ.get("AGENT_LABEL", "pi-agent")
+LABEL_DONE = os.environ.get("AGENT_LABEL_DONE", "pi-agent-done")
+LABEL_FAILED = os.environ.get("AGENT_LABEL_FAILED", "pi-agent-failed")
+
+
+def queue(args):
+    """Work every open issue carrying the trigger label.
+
+    Idempotence comes from the labels and from the branch: an issue whose
+    agent/issue-N branch already exists is treated as already attempted, so a
+    rerun after a crash does not duplicate work or reopen the same PR.
+    """
+    probe = Tools(args.workdir, args.repo, False, True)
+
+    listing = probe._gh("issue", "list", "--state", "open", "--label", LABEL,
+                        "--json", "number,title", "--limit", "20")
+    if listing.startswith("error"):
+        die(listing)
+    try:
+        issues = json.loads(listing or "[]")
+    except json.JSONDecodeError:
+        die(f"could not parse the issue list: {listing[:200]}")
+
+    if not issues:
+        say(f"no open issues labelled '{LABEL}'")
+        return 0
+
+    say(f"{len(issues)} issue(s) labelled '{LABEL}'")
+    if not args.allow_write:
+        for it in issues:
+            print(f"   #{it['number']}  {it['title']}")
+        warn("read-only: add --allow-write to actually work them")
+        return 0
+
+    default = probe.default_branch()
+    worked = failed = skipped = 0
+
+    for it in issues:
+        num, title = it["number"], it["title"]
+        branch = f"{BRANCH_PREFIX}issue-{num}"
+
+        existing = probe._git("ls-remote", "--heads", "origin", branch)
+        if existing and not existing.startswith("error"):
+            print(f"\n{DIM}skip #{num}: {branch} already exists on origin{RST}")
+            skipped += 1
+            continue
+
+        print(f"\n{BOLD}=== #{num}  {title}{RST}")
+
+        # Each issue starts from a clean default branch, or its diff would
+        # include the previous issue's work.
+        probe._git("switch", default)
+        dirty = probe._git("status", "--porcelain")
+        if dirty and not dirty.startswith("error"):
+            warn(f"working tree dirty before #{num}; skipping")
+            skipped += 1
+            continue
+
+        tools = Tools(args.workdir, args.repo, True, True)
+        prompt = (f"Work issue #{num}. Read it with gh_issue_view first, then find the "
+                  f"relevant code before changing anything. Use branch name issue-{num}.")
+        try:
+            agent_loop(prompt, tools, True)
+        except SystemExit:
+            raise
+        except Exception as exc:                      # noqa: BLE001
+            warn(f"#{num} raised: {exc}")
+
+        if tools.pr_url:
+            tools._gh("issue", "edit", str(num),
+                      "--add-label", LABEL_DONE, "--remove-label", LABEL)
+            tools._gh("issue", "comment", str(num),
+                      "--body", f"Draft PR opened by the local agent: {tools.pr_url}\n\n"
+                                f"Model output is unreviewed. Please read the diff.")
+            print(f"{GRN}#{num} -> {tools.pr_url}{RST}")
+            worked += 1
+        else:
+            tools._gh("issue", "edit", str(num),
+                      "--add-label", LABEL_FAILED, "--remove-label", LABEL)
+            tools._gh("issue", "comment", str(num),
+                      "--body", "The local agent could not complete this one. "
+                                "It may be too large or too vague for a small model; "
+                                "no pull request was opened.")
+            warn(f"#{num} produced no PR")
+            failed += 1
+
+    probe._git("switch", default)
+    print(f"\n{BOLD}{worked} PR(s) opened, {failed} failed, {skipped} skipped{RST}")
+    print("Nothing was merged or closed - review the drafts.")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description="Work GitHub issues with the local model.")
     ap.add_argument("prompt", nargs="?")
@@ -457,6 +556,8 @@ def main():
     ap.add_argument("--force", action="store_true", help="proceed even with a dirty tree")
     ap.add_argument("--backend", choices=["lmstudio", "ollama"],
                     help="shorthand for the endpoint port")
+    ap.add_argument("--queue", action="store_true",
+                    help=f"work every open issue labelled '{LABEL}'")
     args = ap.parse_args()
 
     global BASE_URL
@@ -467,8 +568,10 @@ def main():
 
     if args.selftest:
         sys.exit(selftest())
+    if args.queue:
+        sys.exit(queue(args))
     if not args.prompt and args.issue is None:
-        ap.error("give a prompt, --issue N, or --selftest")
+        ap.error("give a prompt, --issue N, --queue, or --selftest")
 
     tools = Tools(args.workdir, args.repo, args.allow_write, args.yes)
 
