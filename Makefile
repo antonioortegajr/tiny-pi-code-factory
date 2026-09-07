@@ -9,7 +9,7 @@ LLM_APP ?= lm-studio
 S     := ./scripts
 ARGS  ?=
 
-.PHONY: all dark base storage ssd-state dev harden preflight apps app network mirror llm llm-test \
+.PHONY: all dark base storage ssd-state dev harden preflight apps app network mirror llm llm-test doctor \
         dark-desktop dark-terminal dark-apps dark-system \
         capture capture-theme apply-captured restore-packages check help
 
@@ -40,6 +40,10 @@ llm: preflight
 	@echo
 	@echo "Server is up. Next:  lms get --help   then   lms load <model>"
 	@echo "Finish the rest whenever:  make all"
+
+## doctor           check the whole chain and say what to fix
+doctor: preflight
+	@$(S)/95-doctor.sh
 
 ## llm-test         check the local model can actually call tools
 llm-test:

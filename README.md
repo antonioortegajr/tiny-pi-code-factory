@@ -128,6 +128,7 @@ screen attached to the Pi.
 | `make dark-system` | login greeter, text console, `/etc/skel` for future accounts |
 | `make llm` | fast path to a working local model, skipping the slow apt upgrade |
 | `make llm-test` | check the local model can actually call tools |
+| `make doctor` | check the whole chain and say what to fix |
 | `make network` | verify the Pi can reach github.com, join Wi-Fi if configured |
 | `make base` | updates, hostname, timezone, locale, core packages |
 | `make storage` | boot order check, HAT SSD mount, zram, trim |
@@ -253,6 +254,58 @@ offload:
 | larger | don't |
 
 More RAM raises the ceiling on model size, not the speed.
+
+## Troubleshooting
+
+```sh
+make doctor
+```
+
+Walks the chain in dependency order — system, storage, model server, loaded
+model, tool calling, GitHub, web UI — and prints a fix line under anything that
+fails. **The first FAIL is usually the real problem**; the ones below it tend to
+be consequences.
+
+It is also where the tool-calling check lives in context: if the model does not
+return `tool_calls`, it tells you to try Ollama with Hermes 3, whose format has
+had parser support for years.
+
+## Agents
+
+Two, with different appetites for risk.
+
+### `bin/pi5-agent` — narrow, in this repo
+
+Issues and a checkout, writes only on an `agent/` branch, opens draft PRs, never
+merges or closes. Predictable on a small model because the tool menu is short.
+Covered below.
+
+### `hermes-agent` — Nous Research's harness
+
+```sh
+make app APP=hermes-agent
+hermes setup      # then point it at the local endpoint
+```
+
+[Hermes Agent](https://github.com/NousResearch/hermes-agent) is a full agent
+harness: terminal commands, file editing, process management, web search,
+browser control — driven by whichever local model you are already running. It
+speaks to Ollama, LM Studio, vLLM, SGLang and llama.cpp, so it slots onto the
+backend this repo already sets up.
+
+arm64 is a supported target — Nous ship a Termux/Android path — so the Pi is not
+exotic. **The constraint is the model, not the harness.** Nous' own Ollama guide
+points at 32 GB for the models this is really meant to drive; on an 8 GB Pi with
+a 3B model, expect it to manage small tasks rather than behave like it does on a
+workstation.
+
+It also has a **terminal tool**, so it can run commands on the Pi. That is the
+point of it, and it is a different bargain from `pi5-agent`'s branch-only
+writes. Pick per task.
+
+The installer brings its own Node 22, Python 3.11, ripgrep and ffmpeg — upwards
+of a gigabyte, on the boot drive. `apps/hermes-agent.sh` refuses to start if
+there is under 4 GB free.
 
 ## Working issues with the local model
 
