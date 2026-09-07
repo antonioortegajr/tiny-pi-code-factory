@@ -10,44 +10,63 @@ storage.
 
 ## Use it
 
-**One command. Copy this:**
+This repo is **private**, so an anonymous `curl` gets a 404 page rather than a
+script. The fix removes typing rather than adding it: after writing the image,
+the boot partition mounts on your Mac. Copy two files onto it.
+
+**On your Mac, right after Raspberry Pi Imager finishes:**
 
 ```sh
-curl -fsSL github.com/antonioortegajr/my-pi5-setup/raw/main/bootstrap.sh | bash
+cp bootstrap.sh /Volumes/bootfs/
+printf '%s' 'github_pat_xxxxx' > /Volumes/bootfs/gh-token
 ```
 
-That is the whole thing: it gets git, fetches this repo, and runs `make all`.
+**On the Pi, first boot:**
 
-> **This repo is currently private**, so that command returns a 404 page rather
-> than a script, and bash reports a syntax error around line 9 when it tries to
-> parse the HTML. Either make the repo public, or use the token form:
->
-> ```sh
-> GH_TOKEN=github_pat_xxx
-> curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
->   https://raw.githubusercontent.com/antonioortegajr/my-pi5-setup/main/bootstrap.sh \
->   | GH_TOKEN=$GH_TOKEN bash
-> ```
->
-> The `-f` matters: without it curl pipes error pages into bash, which is what
-> turns a 404 into a confusing syntax error.
+```sh
+bash /boot/firmware/bootstrap.sh
+```
 
-### Pasting it on a fresh Pi
+Short enough to type, no token in your shell history, nothing fetched before you
+have credentials. It reads the token from `/boot/firmware/gh-token`, clones, and
+runs `make all`.
 
-The terminal has not disabled paste — Raspberry Pi OS uses **`Ctrl+Shift+V`**,
-not `Ctrl+V`, because `Ctrl+C` is SIGINT and cannot be a copy key. Three ways in,
-best first:
+Use a **fine-grained token, read-only, scoped to this repo alone**. It sits in
+plain text on a FAT partition, so it should be worth as little as possible.
 
-1. **SSH in from your Mac and paste there.** Imager already put your key on the
-   Pi, so `ssh pi5.local` works on first boot and your Mac's normal `Cmd+V`
-   applies. Nothing to fight.
-2. **On the Pi:** `Ctrl+Shift+V`, or right-click → Paste, or middle-click to
-   paste the selection.
-3. **Type it.** The URL above is the short form — `github.com/…/raw/…` redirects
-   to `raw.githubusercontent.com`, so it is about 25 characters less to type.
+### If you would rather curl it
+
+```sh
+GH_TOKEN=github_pat_xxxxx
+curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+  https://raw.githubusercontent.com/antonioortegajr/my-pi5-setup/main/bootstrap.sh \
+  | GH_TOKEN=$GH_TOKEN bash
+```
+
+The `-f` is not optional. Without it curl pipes GitHub's HTML error page into
+bash, which reports a syntax error around line 9 instead of a failed download.
+
+### Second reflash onward
+
+If `make mirror` has run, the repo is already on the SSD and none of the above
+applies — no token, no network:
+
+```sh
+sudo mount /dev/sda1 /mnt/ssd        # whatever lsblk shows
+cd /mnt/ssd/my-pi5-setup && make all
+```
+
+### On pasting
+
+Paste is not disabled — Raspberry Pi OS uses **`Ctrl+Shift+V`**, not `Ctrl+V`,
+because `Ctrl+C` is SIGINT and cannot be a copy key. Right-click → Paste and
+middle-click also work.
+
+Easiest is not to fight it: **SSH in from your Mac** and paste there. Imager
+already put your key on the image, so `ssh pi5.local` works on first boot.
 
 After the first run, `make dark` binds copy and paste explicitly in
-`lxterminal.conf`, so this stops being a question.
+`lxterminal.conf`.
 
 ### Afterwards
 

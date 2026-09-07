@@ -8,8 +8,14 @@
 #
 # Environment:
 #   REPO_URL    override the clone URL
-#   GH_TOKEN    personal access token, if the repo is private
+#   GH_TOKEN    personal access token, for a private repo
 #   SSD_REPO    where to look for an existing copy (default /mnt/ssd/my-pi5-setup)
+#
+# The token is also read from a file, so it never has to be typed on the Pi:
+#   /boot/firmware/gh-token   drop this on the boot partition from your Mac
+#                             after imaging, before first boot
+#   ~/.gh-token
+#   /mnt/ssd/.gh-token        survives a reflash with the rest of the SSD
 set -euo pipefail
 
 REPO_URL="${REPO_URL:-https://github.com/antonioortegajr/my-pi5-setup.git}"
@@ -54,6 +60,17 @@ if ! command -v git >/dev/null 2>&1; then
 	say "installing git"
 	sudo apt-get update -qq
 	sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git
+fi
+
+# Find a token without making anyone type one. The boot partition is FAT and
+# mounts on a Mac, so the file can be dropped there straight after imaging.
+if [ -z "${GH_TOKEN:-}" ]; then
+	for f in /boot/firmware/gh-token "$HOME/.gh-token" /mnt/ssd/.gh-token; do
+		if [ -r "$f" ]; then
+			GH_TOKEN="$(tr -d " \t\r\n" < "$f")"
+			[ -n "$GH_TOKEN" ] && say "using the token in $f" && break
+		fi
+	done
 fi
 
 # A token, if given, is used for this clone only - never written into the
