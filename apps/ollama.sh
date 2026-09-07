@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# Ollama - local model runner, the alternative to apps/lm-studio.sh.
+#
+# Worth choosing when tool calling matters. Ollama's parser for the Hermes
+# <tool_call> format is long established, where support for a newer model's
+# format can lag behind the model's release - which is the failure mode
+# pi5-agent is most likely to hit. hermes3:3b is the default here for that
+# reason: trained for function calling, and 2 GB.
+#
+# Models are large, so they go on the SSD rather than the USB boot drive.
+APP_DESCRIPTION="local LLM runner (Ollama)"
+
+app_install() {
+	need_sudo
+
+	# --- install -------------------------------------------------------------
+	if has_cmd ollama; then
+		skip "ollama already installed"
+	elif [ "$DRY_RUN" = "1" ]; then
+		dry "install ollama from ollama.com/install.sh"
+	else
+		log "installing ollama (arm64, brings its own systemd service)"
+		curl -fsSL https://ollama.com/install.sh | sh || return 1
+		changed "installed ollama"
+	fi
+
+	# --- models on the SSD ---------------------------------------------------
+	local models_dir=""
+	if [ -n "${OLLAMA_MODELS_DIR:-}" ]; then
+		models_dir="$OLLAMA_MODELS_DIR"
+	elif [ -n "${SSD_MOUNT_POINT:-}" ] && mountpoint -q "$SSD_MOUNT_POINT" 2>/dev/null; then
+		models_dir="$SSD_MOUNT_POINT/ollama"
+	fi
+
+	if [ -n "$models_dir" ]; then
+		log "model storage: $models_dir"
+		ensure_dir "$models_dir"
+		# The service runs as the ollama user, not as you.
+		[ "$DRY_RUN" = "1" ] || sudo chown -R ollama:ollama "$models_dir" 2>/dev/null || true
+	else
+		warn "SSD not mounted at ${SSD_MOUNT_POINT:-unset}; models will land on the boot drive"
+		log "run 'make storage' first, or set OLLAMA_MODELS_DIR in settings.local.env"
+	fi
+
+	# --- service configuration -----------------------------------------------
+	# A drop-in, so an ollama upgrade cannot overwrite it.
+	{
+		printf '# Managed by my-pi5-setup (apps/ollama.sh)\n[Service]\n'
+		[ -n "$models_dir" ] && printf 'Environment="OLLAMA_MODELS=%s"\n' "$models_dir"
+		# Localhost only by default. Open WebUI reaches it via --network=host,
+		# so there is no reason to expose this to the LAN.
+		printf 'Environment="OLLAMA_HOST=%s"\n' "${OLLAMA_HOST:-127.0.0.1:11434}"
+	} | write_file /etc/systemd/system/ollama.service.d/10-my-pi5-setup.conf
+
+	if [ "$DRY_RUN" != "1" ]; then
+		sudo systemctl daemon-reload
+		sudo systemctl enable --now ollama >/dev/null 2>&1 \
+			|| warn "could not start the ollama service"
+	fi
+
+	# --- models --------------------------------------------------------------
+	# 'make llm LLM_APP=ollama' sets LLM_FAST=1, meaning "pull the default now".
+	local to_pull="${OLLAMA_PULL:-}"
+	if [ -z "$to_pull" ] && [ "${LLM_FAST:-0}" = "1" ]; then
+		to_pull="${OLLAMA_MODEL:-hermes3:3b}"
+	fi
+
+	if [ -n "$to_pull" ]; then
+		local ram_gb
+		ram_gb="$(awk '/MemTotal/ {printf "%.0f", $2/1024/1024}' /proc/meminfo 2>/dev/null || echo 0)"
+		[ "$ram_gb" != "0" ] && log "system RAM: ${ram_gb} GB (the model must fit in this)"
+
+		local m
+		for m in $to_pull; do
+			if [ "$DRY_RUN" = "1" ]; then
+				dry "ollama pull $m"
+			elif ollama list 2>/dev/null | awk 'NR>1 {print $1}' | grep -qx "$m"; then
+				skip "model $m already pulled"
+			else
+				log "pulling $m (gigabytes; several minutes on a Pi)"
+				if ollama pull "$m"; then
+					changed "pulled $m"
+					log "try it:  ollama run $m"
+				else
+					warn "pull failed: $m"
+					log "check the tag at https://ollama.com/library/${m%%:*}"
+				fi
+			fi
+		done
+	else
+		log "no models pulled. Tool-capable choices for an 8 GB Pi:"
+		log "  ollama pull hermes3:3b       2.0 GB, comfortable - the default"
+		log "  ollama pull hermes3:8b       4.7 GB, fits but slow (~2-3 tok/s)"
+		log "set OLLAMA_MODEL or OLLAMA_PULL in settings.local.env to automate it"
+	fi
+
+	log "OpenAI-compatible endpoint:  http://127.0.0.1:11434/v1"
+	log "point the agent at it:  AGENT_BASE_URL=http://127.0.0.1:11434/v1 pi5-agent --selftest"
+}

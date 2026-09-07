@@ -2,10 +2,12 @@
 """Work a GitHub issue with the local model. No MCP, no cloud, no pip deps.
 
 Single self-contained file - drop it into any repo's agent harness. It talks to
-LM Studio's OpenAI-compatible endpoint on localhost, and uses the `gh` and `git`
-CLIs as its tool layer.
+whichever local model server is running (LM Studio on 1234, Ollama on 11434 -
+both speak the OpenAI-compatible shape) and uses the `gh` and `git` CLIs as its
+tool layer.
 
   pi5-agent --selftest              can the model call tools at all?
+  pi5-agent --backend ollama ...    talk to Ollama instead of LM Studio
   pi5-agent --issue 12              read issue 12, branch, work it, open a draft PR
   pi5-agent "summarise open issues" read-only question
 
@@ -23,8 +25,12 @@ import sys
 import urllib.error
 import urllib.request
 
-BASE_URL = os.environ.get("LMS_BASE_URL", "http://127.0.0.1:1234/v1")
-MODEL = os.environ.get("LMS_MODEL_ID", "")
+# Works against either backend: LM Studio on 1234, Ollama on 11434. Both speak
+# the OpenAI-compatible shape, so nothing else in here has to care which.
+BASE_URL = (os.environ.get("AGENT_BASE_URL")
+            or os.environ.get("LMS_BASE_URL")
+            or "http://127.0.0.1:1234/v1")
+MODEL = os.environ.get("AGENT_MODEL_ID") or os.environ.get("LMS_MODEL_ID", "")
 MAX_TURNS = int(os.environ.get("AGENT_MAX_TURNS", "20"))
 MAX_TOOL_CHARS = int(os.environ.get("AGENT_MAX_TOOL_CHARS", "4000"))
 BRANCH_PREFIX = os.environ.get("AGENT_BRANCH_PREFIX", "agent/")
@@ -300,7 +306,9 @@ def selftest():
     say(f"endpoint: {BASE_URL}")
     model = loaded_model()
     if not model:
-        die("no model loaded. Try:  lms ps    then    lms load <model>")
+        die("no model loaded.\n"
+            "  LM Studio:  lms ps    then    lms load <model>\n"
+            "  Ollama:     ollama list    then    ollama pull hermes3:3b")
     say(f"loaded model: {model}")
     say("asking the model to call a tool...")
     msg = chat([{"role": "system", "content": "You have tools. Use them rather than guessing."},
@@ -313,9 +321,10 @@ def selftest():
         return 0
     print(f"\n{RED}FAIL{RST} no tool_calls. The model replied with text:\n")
     print(DIM + (msg.get("content") or "(empty)")[:500] + RST)
-    print("\nGemma 4 emits tool calls as special tokens; the runtime must parse them")
-    print("into OpenAI-shaped tool_calls. Check the LM Studio version, and whether")
-    print("the loaded GGUF ships a chat template with tool support.")
+    print("\nThe model emits tool calls in its own format and the runtime must parse")
+    print("them into OpenAI-shaped tool_calls. That is usually what is missing.")
+    print("Worth trying: Ollama with hermes3:3b, whose tool format has long-standing")
+    print("parser support:  pi5-agent --backend ollama --selftest")
     return 1
 
 
@@ -396,7 +405,15 @@ def main():
                     help="permit branching, editing, committing and opening a draft PR")
     ap.add_argument("--yes", action="store_true", help="skip confirmation for PRs and comments")
     ap.add_argument("--force", action="store_true", help="proceed even with a dirty tree")
+    ap.add_argument("--backend", choices=["lmstudio", "ollama"],
+                    help="shorthand for the endpoint port")
     args = ap.parse_args()
+
+    global BASE_URL
+    if args.backend == "ollama":
+        BASE_URL = "http://127.0.0.1:11434/v1"
+    elif args.backend == "lmstudio":
+        BASE_URL = "http://127.0.0.1:1234/v1"
 
     if args.selftest:
         sys.exit(selftest())

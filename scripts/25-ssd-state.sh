@@ -93,7 +93,7 @@ fi
 # Without this, docker and the LM Studio server can start before the SSD is
 # mounted, find their data directory missing, and quietly recreate it on the
 # boot drive.
-for unit in docker lmstudio-server; do
+for unit in docker lmstudio-server ollama; do
 	systemctl list-unit-files "$unit.service" >/dev/null 2>&1 || continue
 	write_file "/etc/systemd/system/$unit.service.d/15-ssd-mount.conf" <<UNIT
 # Managed by my-pi5-setup (scripts/25-ssd-state.sh)

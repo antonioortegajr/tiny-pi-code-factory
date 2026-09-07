@@ -180,6 +180,36 @@ and idempotent. Use the model to ask about the setup, not to perform it.
 
 ### Local LLMs on a Pi 5
 
+Two interchangeable backends. Both expose an OpenAI-compatible endpoint, so Open
+WebUI and `pi5-agent` work against either:
+
+```sh
+APPS="lm-studio gh open-webui"     # default
+APPS="ollama gh open-webui"        # Ollama instead
+make llm LLM_APP=ollama            # fast path, either way
+```
+
+### Ollama, and why you might prefer it
+
+**If tool calling matters, start here.** `pi5-agent` depends on the runtime
+turning the model's tool-call format into OpenAI-shaped `tool_calls`, and that
+parsing is the part that lags a model's release. Ollama's parser for the Hermes
+`<tool_call>` format has been in place for a long time, and Hermes 3 is trained
+for function calling.
+
+Default is **`hermes3:3b`** — 2.0 GB, comfortable on 8 GB, tool-capable.
+`hermes3:8b` (4.7 GB) fits too but runs at ~2–3 tok/s. Set `OLLAMA_MODEL`.
+
+```sh
+make app APP=ollama
+pi5-agent --backend ollama --selftest
+```
+
+If Gemma 4 fails `make llm-test` under LM Studio, this is the thing to try
+before concluding tool calling does not work.
+
+### LM Studio
+
 Default stack is **headless LM Studio** plus Open WebUI:
 
 - **`lm-studio`** — installs the `lms` CLI via `lmstudio.ai/install.sh`, symlinks
@@ -187,8 +217,10 @@ Default stack is **headless LM Studio** plus Open WebUI:
   `lmstudio-server.service` with lingering enabled, so it comes back after a
   reboot with nobody logged in. Endpoint: `http://127.0.0.1:1234/v1`. Local only
   unless you set `LMS_EXPOSE=1` — there is no authentication on it.
+- **`ollama`** — the alternative runner. systemd service, models on the SSD,
+  endpoint on `127.0.0.1:11434`.
 - **`open-webui`** — the browser front end. Detects which model server is
-  installed and points at it; runs in Docker with `--network=host` and opens its
+  installed and points at it (both, if both are); runs in Docker with `--network=host` and opens its
   port in ufw. Docker installs on demand even if `INSTALL_DOCKER=0`.
 
 Then: `http://pi5.local:8080`, and the first account you create is the admin.
