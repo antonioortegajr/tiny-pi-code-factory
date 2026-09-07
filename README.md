@@ -280,6 +280,23 @@ Issues and a checkout, writes only on an `agent/` branch, opens draft PRs, never
 merges or closes. Predictable on a small model because the tool menu is short.
 Covered below.
 
+### `opencode` — terminal coding agent
+
+```sh
+make app APP=opencode
+cd ~/GitHub/<repo> && opencode
+```
+
+Configured against whichever local server is running: the installer asks the
+endpoint what model is actually loaded and writes
+`~/.config/opencode/opencode.json` with a matching
+`@ai-sdk/openai-compatible` provider. Nothing leaves the Pi.
+
+> **Not `opencode-pi`.** That package on pi.dev has a different "Pi" — the Pi
+> Coding Agent, not a Raspberry Pi — and it bridges OpenCode's free *hosted*
+> models into that agent. It has no local model support, so it would send your
+> work off the box. Plain `opencode` is the one that talks to localhost.
+
 ### `hermes-agent` — Nous Research's harness
 
 ```sh
