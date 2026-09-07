@@ -100,10 +100,10 @@ elif [ ! -x "$REPO_ROOT/bin/pi5-agent" ]; then
 	note "bin/pi5-agent missing"
 else
 	if AGENT_BASE_URL="$ENDPOINT" "$REPO_ROOT/bin/pi5-agent" --selftest >/dev/null 2>&1; then
-		ok "the model returns tool_calls - pi5-agent will work"
+		ok "inference and tool calling both work - see 'make llm-test' for detail"
 	else
-		bad "the model did not return tool_calls"
-		fix "AGENT_BASE_URL=$ENDPOINT bin/pi5-agent --selftest     # full output"
+		bad "the local AI check did not pass"
+		fix "make llm-test          # staged output: endpoint, model, inference, tools"
 		if [ "$BACKEND" != "ollama" ]; then
 			fix "known-good fallback:  make app APP=ollama && pi5-agent --backend ollama --selftest"
 			fix "Hermes 3 is trained for tool use and Ollama has parsed its format for years."

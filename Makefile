@@ -45,7 +45,7 @@ llm: preflight
 doctor: preflight
 	@$(S)/95-doctor.sh
 
-## llm-test         check the local model can actually call tools
+## llm-test         prove the local AI works: inference, speed, tool calling
 llm-test:
 	@bin/pi5-agent --selftest
 

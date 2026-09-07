@@ -302,29 +302,79 @@ def chat(messages, tools):
     return post("/chat/completions", payload)["choices"][0]["message"]
 
 
+def _plain(messages, timeout=300):
+    """A completion with no tools, so a tool-parsing bug cannot mask a model
+    that is simply not generating."""
+    payload = {"messages": messages, "temperature": 0.2, "max_tokens": 120}
+    if MODEL:
+        payload["model"] = MODEL
+    return post("/chat/completions", payload, timeout=timeout)
+
+
 def selftest():
-    say(f"endpoint: {BASE_URL}")
+    """Four stages, in dependency order. Each one prints what it saw, so a
+    failure says which layer broke rather than just 'it did not work'."""
+    import time
+
+    print(f"{BOLD}1. endpoint{RST}")
+    print(f"   {BASE_URL}")
     model = loaded_model()
     if not model:
-        die("no model loaded.\n"
-            "  LM Studio:  lms ps    then    lms load <model>\n"
-            "  Ollama:     ollama list    then    ollama pull hermes3:3b")
-    say(f"loaded model: {model}")
-    say("asking the model to call a tool...")
+        print(f"   {RED}FAIL{RST} no model loaded")
+        print("\n   LM Studio:  lms ps    then    lms load <model>")
+        print("   Ollama:     ollama list    then    ollama pull hermes3:3b")
+        return 1
+    print(f"   {GRN}ok{RST}  reachable")
+
+    print(f"\n{BOLD}2. model{RST}")
+    print(f"   {GRN}ok{RST}  {model}")
+
+    print(f"\n{BOLD}3. inference{RST}")
+    print(f"   {DIM}asking: 'In one short sentence, what is a Raspberry Pi?'{RST}")
+    started = time.time()
+    try:
+        data = _plain([{"role": "user",
+                        "content": "In one short sentence, what is a Raspberry Pi?"}])
+    except SystemExit:
+        raise
+    elapsed = time.time() - started
+    answer = (data["choices"][0]["message"].get("content") or "").strip()
+    if not answer:
+        print(f"   {RED}FAIL{RST} the model returned nothing")
+        return 1
+    print(f"   {GRN}ok{RST}  {answer[:200]}")
+
+    # tok/s is the number that tells you whether this is usable day to day.
+    tokens = (data.get("usage") or {}).get("completion_tokens")
+    if tokens and elapsed > 0:
+        rate = tokens / elapsed
+        verdict = ("comfortable" if rate >= 5 else
+                   "usable but slow" if rate >= 2 else
+                   "painful - consider a smaller model")
+        print(f"   {DIM}{tokens} tokens in {elapsed:.1f}s = {rate:.1f} tok/s ({verdict}){RST}")
+    else:
+        print(f"   {DIM}{elapsed:.1f}s to first complete answer{RST}")
+
+    print(f"\n{BOLD}4. tool calling{RST}")
+    print(f"   {DIM}offering tools and asking it to list issues{RST}")
     msg = chat([{"role": "system", "content": "You have tools. Use them rather than guessing."},
                 {"role": "user", "content": "List the open issues in this repository."}],
                tool_specs(include_write=False))
     calls = msg.get("tool_calls") or []
     if calls:
-        print(f"\n{GRN}PASS{RST} tool_calls returned: "
-              + ", ".join(c["function"]["name"] for c in calls))
+        names = ", ".join(c["function"]["name"] for c in calls)
+        print(f"   {GRN}ok{RST}  returned tool_calls: {names}")
+        print(f"\n{GRN}{BOLD}Local AI is working.{RST} pi5-agent, opencode and hermes can all use it.")
         return 0
-    print(f"\n{RED}FAIL{RST} no tool_calls. The model replied with text:\n")
-    print(DIM + (msg.get("content") or "(empty)")[:500] + RST)
-    print("\nThe model emits tool calls in its own format and the runtime must parse")
-    print("them into OpenAI-shaped tool_calls. That is usually what is missing.")
-    print("Worth trying: Ollama with hermes3:3b, whose tool format has long-standing")
-    print("parser support:  pi5-agent --backend ollama --selftest")
+
+    print(f"   {RED}FAIL{RST} no tool_calls; it replied with text instead:")
+    print(DIM + "   " + (msg.get("content") or "(empty)")[:300] + RST)
+    print(f"\n{YEL}Inference works, tool calling does not.{RST}")
+    print("The model emits tool calls in its own format and the runtime has to parse")
+    print("them into OpenAI-shaped tool_calls. That parsing is what is missing.")
+    print("\nChat and opencode will still work. pi5-agent and hermes-agent need this.")
+    print("Known-good combination to fall back to:")
+    print("  make app APP=ollama && pi5-agent --backend ollama --selftest")
     return 1
 
 

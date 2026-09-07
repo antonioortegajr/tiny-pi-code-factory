@@ -49,6 +49,8 @@ git clone https://github.com/antonioortegajr/my-pi5-setup.git
 cd my-pi5-setup
 DRY_RUN=1 make all      # read this first
 make all
+make llm-test           # is the local AI actually working?
+make doctor             # everything else
 ```
 
 Afterwards, check the remote did not keep your token:
@@ -157,7 +159,7 @@ screen attached to the Pi.
 | `make dark-apps` | VS Code, Chromium, Firefox, Thonny, Geany |
 | `make dark-system` | login greeter, text console, `/etc/skel` for future accounts |
 | `make llm` | fast path to a working local model, skipping the slow apt upgrade |
-| `make llm-test` | check the local model can actually call tools |
+| `make llm-test` | prove the local AI works: inference, speed, tool calling |
 | `make doctor` | check the whole chain and say what to fix |
 | `make network` | verify the Pi can reach github.com, join Wi-Fi if configured |
 | `make base` | updates, hostname, timezone, locale, core packages |
@@ -284,6 +286,31 @@ offload:
 | larger | don't |
 
 More RAM raises the ceiling on model size, not the speed.
+
+## Is the local AI working?
+
+```sh
+make llm-test
+```
+
+Four stages in dependency order, each printing what it saw:
+
+```
+1. endpoint        reachable at http://127.0.0.1:1234/v1
+2. model           lmstudio-community/gemma-4-E2B-it-GGUF
+3. inference       asks a real question, prints the answer and tok/s
+4. tool calling    offers tools, checks tool_calls come back
+```
+
+Stage 3 matters because it separates "the model is not generating" from "the
+model generates but the runtime cannot parse its tool calls" — very different
+problems with the same symptom. It also reports **tokens per second**, which is
+the number that tells you whether this is usable day to day: above 5 is
+comfortable, 2–5 is slow but workable, below 2 means pick a smaller model.
+
+If stage 4 fails, chat and `opencode` still work — only `pi5-agent` and
+`hermes-agent` need tool calling. The fallback is Ollama with Hermes 3, whose
+format has had parser support for years.
 
 ## Troubleshooting
 
