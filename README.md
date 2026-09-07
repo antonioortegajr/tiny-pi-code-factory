@@ -13,10 +13,24 @@ storage.
 **One command. Copy this:**
 
 ```sh
-curl -sL github.com/antonioortegajr/my-pi5-setup/raw/main/bootstrap.sh | bash
+curl -fsSL github.com/antonioortegajr/my-pi5-setup/raw/main/bootstrap.sh | bash
 ```
 
 That is the whole thing: it gets git, fetches this repo, and runs `make all`.
+
+> **This repo is currently private**, so that command returns a 404 page rather
+> than a script, and bash reports a syntax error around line 9 when it tries to
+> parse the HTML. Either make the repo public, or use the token form:
+>
+> ```sh
+> GH_TOKEN=github_pat_xxx
+> curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+>   https://raw.githubusercontent.com/antonioortegajr/my-pi5-setup/main/bootstrap.sh \
+>   | GH_TOKEN=$GH_TOKEN bash
+> ```
+>
+> The `-f` matters: without it curl pipes error pages into bash, which is what
+> turns a 404 into a confusing syntax error.
 
 ### Pasting it on a fresh Pi
 
