@@ -26,6 +26,47 @@ fi
 as_user git config --global init.defaultBranch main || true
 as_user git config --global pull.rebase false || true
 
+step "Shell conveniences"
+
+# The repo directory is bind-mounted from the SSD, but create it anyway so the
+# function still works on a machine where the SSD is absent.
+ensure_dir "$GITHUB_DIR"
+
+# The path is injected as one assignment; the rest of the snippet is a quoted
+# heredoc so nothing in it expands at generation time.
+{
+	printf '# Managed by my-pi5-setup (scripts/40-dev.sh). Sourced from ~/.bashrc.\n'
+	printf 'export GITHUB_DIR="%s"\n\n' "$GITHUB_DIR"
+	cat <<'ALIASES'
+# 'github' jumps to the repo directory; 'github <name>' goes straight into one.
+# A function rather than an alias so it can take that argument.
+github() {
+	local base="${GITHUB_DIR:-$HOME/GitHub}"
+	if [ ! -d "$base" ]; then
+		printf '%s does not exist\n' "$base" >&2
+		return 1
+	fi
+	if [ -n "$1" ] && [ -d "$base/$1" ]; then
+		cd "$base/$1" || return 1
+	else
+		[ -n "$1" ] && printf 'no such repo: %s\n' "$1" >&2
+		cd "$base" || return 1
+	fi
+}
+
+_github_complete() {
+	local base="${GITHUB_DIR:-$HOME/GitHub}"
+	local cur="${COMP_WORDS[COMP_CWORD]}"
+	mapfile -t COMPREPLY < <(compgen -W "$(ls -1 "$base" 2>/dev/null)" -- "$cur")
+}
+complete -F _github_complete github
+ALIASES
+} | write_file "$TARGET_HOME/.config/my-pi5-setup/shell-aliases.sh"
+
+ensure_line "$TARGET_HOME/.bashrc" \
+	'[ -r "$HOME/.config/my-pi5-setup/shell-aliases.sh" ] && . "$HOME/.config/my-pi5-setup/shell-aliases.sh"' \
+	'my-pi5-setup/shell-aliases\.sh'
+
 step "SSH key"
 key="$TARGET_HOME/.ssh/id_ed25519"
 if [ -f "$key" ]; then

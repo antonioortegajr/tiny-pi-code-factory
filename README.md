@@ -226,6 +226,7 @@ The OS lives on the USB drive and gets wiped. The SSD does not. So the rule is:
 | --- | --- | --- |
 | Docker images + volumes | `/mnt/ssd/docker` | still there |
 | LM Studio models | `/mnt/ssd/lm-studio` | still there |
+| Repos | `/mnt/ssd/GitHub`, bind-mounted to `~/GitHub` | still there |
 | Projects | `/mnt/ssd/projects`, bind-mounted to `~/projects` | still there |
 | SSH keys | `/mnt/ssd/ssh`, bind-mounted to `~/.ssh` | still there — no re-adding to GitHub |
 | apt packages, binaries | boot drive | reinstalled — minutes, see `make restore-packages` |
@@ -256,6 +257,20 @@ Point Raspberry Pi Imager at the **USB drive**. The SSD shows up in the same
 picker; selecting it wipes everything above. Nothing in this repo formats or
 partitions anything — `20-storage.sh` only reads the SSD's existing UUID and
 adds an `/etc/fstab` line.
+
+## Repos
+
+Clones live in `~/GitHub`, which is bind-mounted from `/mnt/ssd/GitHub` — so a
+reflash does not take your checkouts with it. `40-dev.sh` installs a shell
+function to get there:
+
+```sh
+github                # cd ~/GitHub
+github my-pi5-setup   # cd straight into a repo, with tab completion
+```
+
+A function rather than an alias, so it can take the argument. Path comes from
+`GITHUB_DIR`.
 
 ## Settings
 
