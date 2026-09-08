@@ -10,9 +10,10 @@ thing it does is work them into draft PRs. Four commands, nothing else parsed.
   /status            model server health
   /help              the above
 
-Everything else gets a one-line rejection without reaching the model. That keeps
-CPU off pointless chat on a board that is slow at it, and means a message can
-only ever trigger a fixed, reviewable workflow.
+Plain phrasing is matched too - "Doom check for new issues in my-pi5-setup"
+finds the repo name and runs the queue - but by string matching here, not by
+asking the model. Nothing a message contains is ever sent to it as a prompt, so
+this stays a fixed set of reviewable workflows however it is phrased.
 
 Long polling, so the Pi needs no public IP, no webhook and no TLS certificate -
 it dials out.
@@ -104,10 +105,13 @@ def run_agent(args, timeout=1800):
 
 HELP = """I work GitHub issues on the Pi. I do not chat.
 
+/work <repo>    work the issues labelled agent:queued there
 /repos          repos I can see
-/work <repo>    work the issues labelled agent:queued in that repo
 /status         is the local model up
 /help           this
+
+Naming a repo in plain words works too:
+  "check for new github issues in my-pi5-setup"
 
 Label an issue agent:queued, then tell me the repo.
 Draft PRs only - nothing is merged or closed."""
@@ -129,16 +133,17 @@ def available_repos():
 def check_passphrase(text):
     """Returns the message with the passphrase stripped, or None if it is wrong.
 
-    Compared with compare_digest out of habit rather than need - the timing
-    signal over a polled chat API is noise - but it costs nothing.
+    Case-insensitive: a phone will capitalise the first word of a message, so
+    "doom" and "Doom" have to be the same thing. This costs almost nothing given
+    the phrase is a speed bump rather than a secret.
     """
     if not PASSPHRASE:
         return text
     stripped = text.strip()
     prefix = stripped[:len(PASSPHRASE)]
-    if not hmac.compare_digest(prefix, PASSPHRASE):
+    if not hmac.compare_digest(prefix.lower(), PASSPHRASE.lower()):
         return None
-    return stripped[len(PASSPHRASE):].strip()
+    return stripped[len(PASSPHRASE):].strip(" ,.:;-")
 
 
 def handle(text, chat_id):
@@ -178,8 +183,24 @@ def handle(text, chat_id):
         send(chat_id, f"Working queued issues in {name}. This takes a while on a Pi…")
         return run_agent(["--queue", "--allow-write", "-C", workdir])
 
-    # No free-form path to the model. This is the point of the restriction.
-    return "I only take commands, not conversation.\n\n" + HELP
+    # Plain phrasing, matched deterministically. Naming a repo is taken as
+    # "work it" - the only action there is anyway. Nothing here reaches the
+    # model, so this is a friendlier parser, not a loosened boundary.
+    lowered = cmd.lower()
+
+    if any(w in lowered for w in ("status", "health", "alive", "up?")):
+        return handle("/status", chat_id)
+
+    if any(w in lowered for w in ("repos", "repositories", "what can you")):
+        return handle("/repos", chat_id)
+
+    for name in available_repos():
+        if name.lower() in lowered:
+            return handle(f"/work {name}", chat_id)
+
+    repos = available_repos()
+    return ("I did not spot a repo I know in that.\n"
+            f"I can work: {', '.join(repos) or '(none)'}\n\n" + HELP)
 
 
 def main():

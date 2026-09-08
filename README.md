@@ -403,7 +403,7 @@ model will not work a vague ticket, and `write_file` replaces whole files.
 TELEGRAM_TOKEN=123456:ABC...        # from @BotFather
 TELEGRAM_ALLOWED_IDS=987654321      # from @userinfobot
 TELEGRAM_ALLOW_WRITE=1              # let it actually open PRs
-TELEGRAM_PASSPHRASE=opensesame      # optional second lock
+TELEGRAM_PASSPHRASE=Doom            # optional second lock
 ```
 
 ```sh
@@ -415,13 +415,25 @@ and anything else gets a one-line rejection without the model ever seeing it:
 
 | Message | Does |
 | --- | --- |
-| `/repos` | which repos it can see |
 | `/work my-repo` | works the `agent:queued` issues there, opening draft PRs |
+| `/repos` | which repos it can see |
 | `/status` | is the local model up |
 | `/help` | the above |
 
-So the whole workflow is: label an issue `agent:queued`, message `/work <repo>`,
-review the draft PR. That is all it can be asked to do.
+Plain phrasing works too — **naming a repo means "work it"**, since that is the
+only action available:
+
+```
+Doom check for new github issues in this repo my-pi5-setup
+```
+
+That is matched by **string comparison against your checkout names**, not by
+asking the model. Nothing in a message is ever sent to it as a prompt, so the
+friendlier phrasing does not widen anything: however you word it, you can only
+reach the same four workflows.
+
+So the whole loop is: label an issue `agent:queued`, tell the bot the repo,
+review the draft PR.
 
 Restricting it this way is not only about safety. Free-form chat with a 4B model
 on a CPU is slow and mediocre, and every message would occupy the board for
@@ -442,8 +454,13 @@ workflow you have already reviewed.
   reports what it would have done. With it, still draft PRs only.
 
 **Optional passphrase.** With `TELEGRAM_PASSPHRASE` set, every message must
-start with it (`opensesame /work my-repo`) or the bot replies *"I don't know
-you."*
+start with it or the bot replies *"I don't know you."* Short is right — you type
+it every time — and it is **case-insensitive**, because a phone capitalises the
+first word of a message.
+
+```
+Doom check for new github issues in my-pi5-setup
+```
 
 Be clear about what that buys, since it is checked **after** the allowlist:
 against a stranger it is redundant — they never get past the chat id, and are
