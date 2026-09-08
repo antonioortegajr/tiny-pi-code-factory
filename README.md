@@ -341,7 +341,13 @@ Two, with different appetites for risk.
 
 Issues and a checkout, writes only on an `agent/` branch, opens draft PRs, never
 merges or closes. Predictable on a small model because the tool menu is short.
-Covered below.
+
+**Full documentation: [docs/pi5-agent.md](docs/pi5-agent.md)** — the spec it
+follows, the tool list, the safety model, `AGENTS.md` support, and the limits.
+
+It follows no agent framework: just the OpenAI tool-calling wire format, plus
+`AGENTS.md` for project instructions — the same file `opencode` reads, so one
+file steers both.
 
 ### Label-driven queue
 
@@ -625,6 +631,7 @@ settings.env      defaults; override in settings.local.env
 lib/              logging, detection, idempotent file editing, apt helpers
 scripts/          numbered stages, each runnable on its own
 apps/             one installer per third-party app, listed in $APPS
+docs/             pi5-agent reference
 config/           tracked config fragments, plus config/captured/ snapshots
 captured/         output of 'make capture' - this machine's inventory
 state/            gitignored: detection results and backups

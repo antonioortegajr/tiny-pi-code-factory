@@ -35,6 +35,10 @@ MODEL = os.environ.get("AGENT_MODEL_ID") or os.environ.get("LMS_MODEL_ID", "")
 MAX_TURNS = int(os.environ.get("AGENT_MAX_TURNS", "20"))
 MAX_TOOL_CHARS = int(os.environ.get("AGENT_MAX_TOOL_CHARS", "4000"))
 BRANCH_PREFIX = os.environ.get("AGENT_BRANCH_PREFIX", "agent/")
+# Repo-specific instructions get prepended to the system prompt. AGENTS.md is the
+# cross-tool convention (opencode reads it too), so one file steers both agents.
+# Bounded, because context here is 8K and the tool results have to fit in it.
+AGENTS_MD_MAX = int(os.environ.get("AGENT_INSTRUCTIONS_MAX_CHARS", "3000"))
 
 _tty = sys.stdout.isatty()
 DIM, BOLD, RED, GRN, YEL, BLU, RST = (
@@ -405,8 +409,40 @@ Rules:
 - Be brief in prose."""
 
 
+def repo_instructions(workdir):
+    """Load AGENTS.md, or CLAUDE.md as a fallback. Nearest file wins, matching
+    the AGENTS.md convention for monorepos."""
+    for name in ("AGENTS.md", "CLAUDE.md", ".github/AGENTS.md"):
+        path = os.path.join(workdir, name)
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                text = fh.read().strip()
+        except OSError:
+            continue
+        if not text:
+            continue
+        truncated = len(text) > AGENTS_MD_MAX
+        if truncated:
+            text = text[:AGENTS_MD_MAX] + "\n...(truncated)"
+        return name, text, truncated
+    return None, "", False
+
+
 def agent_loop(prompt, tools, include_write):
-    messages = [{"role": "system", "content": SYSTEM},
+    system = SYSTEM
+    name, extra, truncated = repo_instructions(tools.workdir)
+    if extra:
+        system += f"\n\n--- Project instructions from {name} ---\n{extra}"
+        note = f"{DIM}  using {name}"
+        if truncated:
+            note += f" (truncated to {AGENTS_MD_MAX} chars){RST}"
+        else:
+            note += RST
+        print(note)
+
+    messages = [{"role": "system", "content": system},
                 {"role": "user", "content": prompt}]
     specs = tool_specs(include_write)
 
