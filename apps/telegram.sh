@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Telegram bridge to the local model - message the Pi from your phone.
+# Telegram trigger for the issue queue - tell the Pi a repo has work waiting.
 #
-# Long polling, so no public IP, no webhook and no TLS certificate: the Pi dials
-# out. Runs as a systemd service next to the model server.
-APP_DESCRIPTION="Telegram bridge to the local model"
+# Not a chat bot: four fixed commands, no free-form path to the model. Long
+# polling, so no public IP, no webhook and no TLS certificate - the Pi dials out.
+APP_DESCRIPTION="Telegram trigger for the issue queue"
 
 app_install() {
 	need_sudo
@@ -43,7 +43,8 @@ app_install() {
 		printf 'TELEGRAM_TOKEN=%s\n' "$TELEGRAM_TOKEN"
 		printf 'TELEGRAM_ALLOWED_IDS=%s\n' "$TELEGRAM_ALLOWED_IDS"
 		printf 'TELEGRAM_ALLOW_WRITE=%s\n' "${TELEGRAM_ALLOW_WRITE:-0}"
-		printf 'TELEGRAM_REPO_DIR=%s\n' "${TELEGRAM_REPO_DIR:-$GITHUB_DIR/my-pi5-setup}"
+		printf 'GITHUB_DIR=%s\n' "$GITHUB_DIR"
+		printf 'TELEGRAM_REPOS=%s\n' "${TELEGRAM_REPOS:-}"
 		printf 'AGENT_BASE_URL=%s\n' "${AGENT_BASE_URL:-http://127.0.0.1:${LMS_PORT:-1234}/v1}"
 	} | write_file "$envfile" 0600
 
@@ -79,9 +80,10 @@ UNIT
 
 	log ""
 	log "message your bot /help to check it"
+	log "it takes four commands and nothing else - there is no chat path to the model"
 	if [ "${TELEGRAM_ALLOW_WRITE:-0}" = "1" ]; then
-		warn "writes are ENABLED: /queue run and /issue N can open PRs from chat"
+		warn "writes are ENABLED: /work <repo> can open draft PRs"
 	else
-		log "read-only. Set TELEGRAM_ALLOW_WRITE=1 to allow /queue run and /issue N."
+		log "preview only. Set TELEGRAM_ALLOW_WRITE=1 to let /work actually do it."
 	fi
 }

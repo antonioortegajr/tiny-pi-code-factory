@@ -117,12 +117,10 @@ default branch.
 
 ## Driving it from Telegram
 
-`apps/telegram.sh` installs a bridge that runs the agent as a subprocess, so the
-same rails apply: plain messages are read-only questions, `/queue run` and
-`/issue N` need `TELEGRAM_ALLOW_WRITE=1`, and PRs are still drafts.
-
-Two things it does not do: reply to unlisted chats, or hold the model open
-between messages. See the README for setup.
+`apps/telegram.sh` installs a bridge that runs this agent as a subprocess. It is
+a trigger, not a chat interface: `/work <repo>` runs the queue there, and no
+message reaches the model as free text. Same rails - draft PRs only, writes
+behind `TELEGRAM_ALLOW_WRITE=1`. See the README for setup.
 
 ## Writing issues it can actually do
 

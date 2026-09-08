@@ -396,43 +396,53 @@ Run it on a schedule if you like — it is just a command:
 Write issues for it accordingly: small, specific, one file where possible. A 4B
 model will not work a vague ticket, and `write_file` replaces whole files.
 
-### Telegram — talk to it from your phone
+### Telegram — tell it a repo has work
 
 ```sh
 # settings.local.env
 TELEGRAM_TOKEN=123456:ABC...        # from @BotFather
 TELEGRAM_ALLOWED_IDS=987654321      # from @userinfobot
+TELEGRAM_ALLOW_WRITE=1              # let it actually open PRs
 ```
 
 ```sh
 make app APP=telegram
 ```
 
-Long polling, so the Pi needs **no public IP, no webhook and no TLS
-certificate** — it dials out. Runs as `pi5-telegram.service`.
+**Not a chat bot.** There is no free-form path to the model — four commands,
+and anything else gets a one-line rejection without the model ever seeing it:
 
 | Message | Does |
 | --- | --- |
-| anything | asks the local model, read-only |
-| `/status` | model server health |
-| `/queue` | lists issues labelled `agent:queued` |
-| `/queue run` | works them, opening draft PRs |
-| `/issue 12` | works one issue |
+| `/repos` | which repos it can see |
+| `/work my-repo` | works the `agent:queued` issues there, opening draft PRs |
+| `/status` | is the local model up |
 | `/help` | the above |
 
-**The allowlist is not optional.** A bot token is a URL anyone can POST to, so
-without `TELEGRAM_ALLOWED_IDS` a stranger who found the bot could drive an agent
-with write access to your repos. The bridge refuses to start without it, and
-messages from unlisted chats are logged and ignored rather than answered —
-replying would confirm the bot is live.
+So the whole workflow is: label an issue `agent:queued`, message `/work <repo>`,
+review the draft PR. That is all it can be asked to do.
 
-Writes are off by default. `TELEGRAM_ALLOW_WRITE=1` enables `/queue run` and
-`/issue N`, which turns a phone message into a code change. Still draft PRs
-only; nothing merges or closes.
+Restricting it this way is not only about safety. Free-form chat with a 4B model
+on a CPU is slow and mediocre, and every message would occupy the board for
+minutes. A fixed command surface means a message can only ever trigger a
+workflow you have already reviewed.
 
-The token lives in `/etc/my-pi5-setup/telegram.env` at mode 0600, not in the
-systemd unit — `systemctl show` prints `Environment=` lines to any user on the
-box.
+**Three boundaries:**
+
+- **The allowlist is mandatory.** A bot token is a URL anyone can POST to, so
+  without `TELEGRAM_ALLOWED_IDS` a stranger who found the bot could drive it.
+  The bridge exits at startup rather than run open, and messages from unlisted
+  chats are logged and dropped rather than answered — replying would confirm the
+  bot is live.
+- **Repos are resolved by name against checkouts under `GITHUB_DIR`**, so a
+  message cannot name an arbitrary path. Narrow it further with
+  `TELEGRAM_REPOS`.
+- **Writes are off by default.** Without `TELEGRAM_ALLOW_WRITE=1`, `/work`
+  reports what it would have done. With it, still draft PRs only.
+
+The token is written to `/etc/my-pi5-setup/telegram.env` at mode 0600, not into
+the systemd unit — `systemctl show` prints `Environment=` lines to any local
+user.
 
 ### `opencode` — terminal coding agent
 

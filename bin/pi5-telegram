@@ -1,20 +1,27 @@
 #!/usr/bin/env python3
-"""Talk to the Pi's local model from Telegram. Stdlib only, no pip deps.
+"""Tell the Pi a repo has work waiting. Stdlib only, no pip deps.
+
+Deliberately NOT a chat bot. There is no free-form path to the model: the only
+thing you can say is "this repo has issues labelled agent:queued", and the only
+thing it does is work them into draft PRs. Four commands, nothing else parsed.
+
+  /repos             which repos it can see
+  /work <repo>       work the agent:queued issues in that repo
+  /status            model server health
+  /help              the above
+
+Everything else gets a one-line rejection without reaching the model. That keeps
+CPU off pointless chat on a board that is slow at it, and means a message can
+only ever trigger a fixed, reviewable workflow.
 
 Long polling, so the Pi needs no public IP, no webhook and no TLS certificate -
-it dials out. Runs as a systemd service alongside the model server.
+it dials out.
 
-  /help              what it can do
-  /status            model server health, queued issues
-  /queue             list issues labelled agent:queued
-  /queue run         work them (needs TELEGRAM_ALLOW_WRITE=1)
-  /issue 12          work one issue (needs TELEGRAM_ALLOW_WRITE=1)
-  anything else      ask the local model
-
-SECURITY: a bot token is a URL anyone can POST to. Without an allowlist, any
-stranger who finds the bot could drive an agent that writes to your repos, so
-this refuses to start unless TELEGRAM_ALLOWED_IDS is set, and ignores every
-message from anyone else.
+SECURITY: a bot token is a URL anyone can POST to. Without an allowlist any
+stranger who finds the bot could drive it, so this refuses to start unless
+TELEGRAM_ALLOWED_IDS is set, and ignores every message from anyone else. Repos
+are limited to checkouts under GITHUB_DIR, so a message cannot name an
+arbitrary path.
 """
 
 import json
@@ -29,7 +36,10 @@ import urllib.request
 TOKEN = os.environ.get("TELEGRAM_TOKEN", "").strip()
 ALLOWED = {i.strip() for i in os.environ.get("TELEGRAM_ALLOWED_IDS", "").split(",") if i.strip()}
 ALLOW_WRITE = os.environ.get("TELEGRAM_ALLOW_WRITE", "0") == "1"
-REPO_DIR = os.environ.get("TELEGRAM_REPO_DIR", os.path.expanduser("~/GitHub/my-pi5-setup"))
+GITHUB_DIR = os.environ.get("GITHUB_DIR", os.path.expanduser("~/GitHub"))
+# Optional narrowing: a comma-separated list of repo names. Empty means any
+# checkout under GITHUB_DIR.
+REPO_ALLOWLIST = {r.strip() for r in os.environ.get("TELEGRAM_REPOS", "").split(",") if r.strip()}
 AGENT = os.environ.get("TELEGRAM_AGENT_BIN",
                        os.path.join(os.path.dirname(os.path.abspath(__file__)), "pi5-agent"))
 POLL_TIMEOUT = int(os.environ.get("TELEGRAM_POLL_TIMEOUT", "30"))
@@ -69,7 +79,7 @@ def run_agent(args, timeout=1800):
     """The agent is a separate process, so a crash or a hang in it cannot take
     the bot down with it."""
     try:
-        proc = subprocess.run([AGENT, *args], cwd=REPO_DIR, capture_output=True,
+        proc = subprocess.run([AGENT, *args], cwd=GITHUB_DIR, capture_output=True,
                               text=True, timeout=timeout)
     except FileNotFoundError:
         return f"pi5-agent not found at {AGENT}"
@@ -79,53 +89,69 @@ def run_agent(args, timeout=1800):
     return out.strip() or "(no output)"
 
 
-HELP = """Local model on the Pi.
+HELP = """I work GitHub issues on the Pi. I do not chat.
 
-/status        health of the model server
-/queue         list issues labelled agent:queued
-/queue run     work them, opening draft PRs
-/issue 12      work issue 12
-/help          this
+/repos          repos I can see
+/work <repo>    work the issues labelled agent:queued in that repo
+/status         is the local model up
+/help           this
 
-Anything else is asked to the model directly.
+Label an issue agent:queued, then tell me the repo.
 Draft PRs only - nothing is merged or closed."""
+
+
+def available_repos():
+    """Checkouts under GITHUB_DIR, optionally narrowed by TELEGRAM_REPOS. A
+    message can only ever name one of these, never an arbitrary path."""
+    try:
+        names = sorted(n for n in os.listdir(GITHUB_DIR)
+                       if os.path.isdir(os.path.join(GITHUB_DIR, n, ".git")))
+    except OSError:
+        return []
+    if REPO_ALLOWLIST:
+        names = [n for n in names if n in REPO_ALLOWLIST]
+    return names
 
 
 def handle(text, chat_id):
     cmd = text.strip()
+    parts = cmd.split()
+    verb = parts[0].lower() if parts else ""
 
-    if cmd in ("/start", "/help"):
+    if verb in ("/start", "/help"):
         return HELP
 
-    if cmd == "/status":
+    if verb == "/repos":
+        repos = available_repos()
+        if not repos:
+            return f"No git checkouts found under {GITHUB_DIR}."
+        return "I can work:\n" + "\n".join(f"  {r}" for r in repos)
+
+    if verb == "/status":
         out = run_agent(["--selftest"], timeout=300)
-        # The staged selftest is verbose; the last lines carry the verdict.
         return "\n".join(out.splitlines()[-12:])
 
-    if cmd.startswith("/queue"):
-        if cmd.strip() in ("/queue run", "/queue_run"):
-            if not ALLOW_WRITE:
-                return ("Writes are disabled. Set TELEGRAM_ALLOW_WRITE=1 in "
-                        "settings.local.env and restart the service.")
-            send(chat_id, "Working the queue. This takes a while on a Pi…")
-            return run_agent(["--queue", "--allow-write"])
-        return run_agent(["--queue"])
+    if verb == "/work":
+        repos = available_repos()
+        if len(parts) < 2:
+            return "Which repo? Try /repos to see them, then /work <repo>."
+        name = parts[1]
+        if name not in repos:
+            return (f"I cannot see a repo called {name!r}.\n"
+                    f"Available: {', '.join(repos) or '(none)'}")
 
-    if cmd.startswith("/issue"):
-        parts = cmd.split()
-        if len(parts) < 2 or not parts[1].isdigit():
-            return "Usage: /issue 12"
+        workdir = os.path.join(GITHUB_DIR, name)
         if not ALLOW_WRITE:
-            return ("Writes are disabled. Set TELEGRAM_ALLOW_WRITE=1 in "
-                    "settings.local.env and restart the service.")
-        send(chat_id, f"Working issue #{parts[1]}. This takes a while…")
-        return run_agent(["--issue", parts[1], "--allow-write"])
+            listing = run_agent(["--queue", "-C", workdir], timeout=300)
+            return ("Writes are disabled, so here is what I would work:\n\n"
+                    + listing +
+                    "\n\nSet TELEGRAM_ALLOW_WRITE=1 and restart to let me do it.")
 
-    if cmd.startswith("/"):
-        return f"Unknown command. {HELP}"
+        send(chat_id, f"Working queued issues in {name}. This takes a while on a Pi…")
+        return run_agent(["--queue", "--allow-write", "-C", workdir])
 
-    # Plain text: a read-only question. No write tools are offered at all.
-    return run_agent([cmd], timeout=600)
+    # No free-form path to the model. This is the point of the restriction.
+    return "I only take commands, not conversation.\n\n" + HELP
 
 
 def main():
@@ -142,7 +168,8 @@ def main():
         sys.exit("could not reach Telegram - check the token and the network")
     log(f"connected as @{me['result'].get('username')}")
     log(f"allowed chat ids: {', '.join(sorted(ALLOWED))}")
-    log(f"writes: {'enabled' if ALLOW_WRITE else 'disabled (read-only)'}")
+    log(f"writes: {'enabled' if ALLOW_WRITE else 'disabled (preview only)'}")
+    log(f"repos: {', '.join(available_repos()) or f'none found under {GITHUB_DIR}'}")
 
     offset = None
     while True:
