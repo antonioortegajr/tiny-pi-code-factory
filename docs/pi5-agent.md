@@ -115,6 +115,15 @@ default branch.
 - **Tool calling may not parse at all** depending on the runtime. `make llm-test`
   stage 4 tells you. If it fails, chat and `opencode` still work.
 
+## Driving it from Telegram
+
+`apps/telegram.sh` installs a bridge that runs the agent as a subprocess, so the
+same rails apply: plain messages are read-only questions, `/queue run` and
+`/issue N` need `TELEGRAM_ALLOW_WRITE=1`, and PRs are still drafts.
+
+Two things it does not do: reply to unlisted chats, or hold the model open
+between messages. See the README for setup.
+
 ## Writing issues it can actually do
 
 Small, specific, one file where possible. State the file path if you know it.

@@ -396,6 +396,44 @@ Run it on a schedule if you like — it is just a command:
 Write issues for it accordingly: small, specific, one file where possible. A 4B
 model will not work a vague ticket, and `write_file` replaces whole files.
 
+### Telegram — talk to it from your phone
+
+```sh
+# settings.local.env
+TELEGRAM_TOKEN=123456:ABC...        # from @BotFather
+TELEGRAM_ALLOWED_IDS=987654321      # from @userinfobot
+```
+
+```sh
+make app APP=telegram
+```
+
+Long polling, so the Pi needs **no public IP, no webhook and no TLS
+certificate** — it dials out. Runs as `pi5-telegram.service`.
+
+| Message | Does |
+| --- | --- |
+| anything | asks the local model, read-only |
+| `/status` | model server health |
+| `/queue` | lists issues labelled `agent:queued` |
+| `/queue run` | works them, opening draft PRs |
+| `/issue 12` | works one issue |
+| `/help` | the above |
+
+**The allowlist is not optional.** A bot token is a URL anyone can POST to, so
+without `TELEGRAM_ALLOWED_IDS` a stranger who found the bot could drive an agent
+with write access to your repos. The bridge refuses to start without it, and
+messages from unlisted chats are logged and ignored rather than answered —
+replying would confirm the bot is live.
+
+Writes are off by default. `TELEGRAM_ALLOW_WRITE=1` enables `/queue run` and
+`/issue N`, which turns a phone message into a code change. Still draft PRs
+only; nothing merges or closes.
+
+The token lives in `/etc/my-pi5-setup/telegram.env` at mode 0600, not in the
+systemd unit — `systemctl show` prints `Environment=` lines to any user on the
+box.
+
 ### `opencode` — terminal coding agent
 
 ```sh

@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+"""Talk to the Pi's local model from Telegram. Stdlib only, no pip deps.
+
+Long polling, so the Pi needs no public IP, no webhook and no TLS certificate -
+it dials out. Runs as a systemd service alongside the model server.
+
+  /help              what it can do
+  /status            model server health, queued issues
+  /queue             list issues labelled agent:queued
+  /queue run         work them (needs TELEGRAM_ALLOW_WRITE=1)
+  /issue 12          work one issue (needs TELEGRAM_ALLOW_WRITE=1)
+  anything else      ask the local model
+
+SECURITY: a bot token is a URL anyone can POST to. Without an allowlist, any
+stranger who finds the bot could drive an agent that writes to your repos, so
+this refuses to start unless TELEGRAM_ALLOWED_IDS is set, and ignores every
+message from anyone else.
+"""
+
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+TOKEN = os.environ.get("TELEGRAM_TOKEN", "").strip()
+ALLOWED = {i.strip() for i in os.environ.get("TELEGRAM_ALLOWED_IDS", "").split(",") if i.strip()}
+ALLOW_WRITE = os.environ.get("TELEGRAM_ALLOW_WRITE", "0") == "1"
+REPO_DIR = os.environ.get("TELEGRAM_REPO_DIR", os.path.expanduser("~/GitHub/my-pi5-setup"))
+AGENT = os.environ.get("TELEGRAM_AGENT_BIN",
+                       os.path.join(os.path.dirname(os.path.abspath(__file__)), "pi5-agent"))
+POLL_TIMEOUT = int(os.environ.get("TELEGRAM_POLL_TIMEOUT", "30"))
+API = f"https://api.telegram.org/bot{TOKEN}"
+
+# Telegram rejects messages over 4096 characters.
+MAX_MSG = 3900
+
+
+def log(msg):
+    print(f"[pi5-telegram] {msg}", flush=True)
+
+
+def api(method, **params):
+    url = f"{API}/{method}"
+    data = urllib.parse.urlencode(params).encode()
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, data=data),
+                                    timeout=POLL_TIMEOUT + 15) as resp:
+            return json.load(resp)
+    except urllib.error.HTTPError as exc:
+        log(f"{method} failed: {exc.code} {exc.read().decode()[:200]}")
+    except urllib.error.URLError as exc:
+        log(f"{method} unreachable: {exc.reason}")
+    except TimeoutError:
+        pass
+    return None
+
+
+def send(chat_id, text):
+    if len(text) > MAX_MSG:
+        text = text[:MAX_MSG] + "\n…(truncated)"
+    api("sendMessage", chat_id=chat_id, text=text or "(no output)")
+
+
+def run_agent(args, timeout=1800):
+    """The agent is a separate process, so a crash or a hang in it cannot take
+    the bot down with it."""
+    try:
+        proc = subprocess.run([AGENT, *args], cwd=REPO_DIR, capture_output=True,
+                              text=True, timeout=timeout)
+    except FileNotFoundError:
+        return f"pi5-agent not found at {AGENT}"
+    except subprocess.TimeoutExpired:
+        return "timed out - the model is slow on this hardware, try a smaller task"
+    out = (proc.stdout or "") + (proc.stderr or "")
+    return out.strip() or "(no output)"
+
+
+HELP = """Local model on the Pi.
+
+/status        health of the model server
+/queue         list issues labelled agent:queued
+/queue run     work them, opening draft PRs
+/issue 12      work issue 12
+/help          this
+
+Anything else is asked to the model directly.
+Draft PRs only - nothing is merged or closed."""
+
+
+def handle(text, chat_id):
+    cmd = text.strip()
+
+    if cmd in ("/start", "/help"):
+        return HELP
+
+    if cmd == "/status":
+        out = run_agent(["--selftest"], timeout=300)
+        # The staged selftest is verbose; the last lines carry the verdict.
+        return "\n".join(out.splitlines()[-12:])
+
+    if cmd.startswith("/queue"):
+        if cmd.strip() in ("/queue run", "/queue_run"):
+            if not ALLOW_WRITE:
+                return ("Writes are disabled. Set TELEGRAM_ALLOW_WRITE=1 in "
+                        "settings.local.env and restart the service.")
+            send(chat_id, "Working the queue. This takes a while on a Pi…")
+            return run_agent(["--queue", "--allow-write"])
+        return run_agent(["--queue"])
+
+    if cmd.startswith("/issue"):
+        parts = cmd.split()
+        if len(parts) < 2 or not parts[1].isdigit():
+            return "Usage: /issue 12"
+        if not ALLOW_WRITE:
+            return ("Writes are disabled. Set TELEGRAM_ALLOW_WRITE=1 in "
+                    "settings.local.env and restart the service.")
+        send(chat_id, f"Working issue #{parts[1]}. This takes a while…")
+        return run_agent(["--issue", parts[1], "--allow-write"])
+
+    if cmd.startswith("/"):
+        return f"Unknown command. {HELP}"
+
+    # Plain text: a read-only question. No write tools are offered at all.
+    return run_agent([cmd], timeout=600)
+
+
+def main():
+    if not TOKEN:
+        sys.exit("TELEGRAM_TOKEN is not set. Put it in settings.local.env.")
+    if not ALLOWED:
+        sys.exit("TELEGRAM_ALLOWED_IDS is empty. Refusing to start: without it, "
+                 "anyone who finds this bot could drive it.\n"
+                 "Message the bot, then read the chat id from its logs, or use "
+                 "@userinfobot to find yours.")
+
+    me = api("getMe")
+    if not me or not me.get("ok"):
+        sys.exit("could not reach Telegram - check the token and the network")
+    log(f"connected as @{me['result'].get('username')}")
+    log(f"allowed chat ids: {', '.join(sorted(ALLOWED))}")
+    log(f"writes: {'enabled' if ALLOW_WRITE else 'disabled (read-only)'}")
+
+    offset = None
+    while True:
+        params = {"timeout": POLL_TIMEOUT}
+        if offset is not None:
+            params["offset"] = offset
+        updates = api("getUpdates", **params)
+        if not updates or not updates.get("ok"):
+            time.sleep(5)
+            continue
+
+        for upd in updates["result"]:
+            offset = upd["update_id"] + 1
+            msg = upd.get("message") or upd.get("edited_message")
+            if not msg:
+                continue
+            chat_id = str(msg.get("chat", {}).get("id", ""))
+            text = msg.get("text", "")
+            if not text:
+                continue
+
+            if chat_id not in ALLOWED:
+                # Logged, not answered: replying confirms the bot is live.
+                log(f"ignoring message from unlisted chat {chat_id}")
+                continue
+
+            log(f"{chat_id}: {text[:80]}")
+            try:
+                send(chat_id, handle(text, chat_id))
+            except Exception as exc:              # noqa: BLE001
+                log(f"handler failed: {exc}")
+                send(chat_id, f"Something broke handling that: {exc}")
+
+
+if __name__ == "__main__":
+    main()
