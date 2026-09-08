@@ -10,11 +10,20 @@
 #   hermes-agent   broad, including a terminal tool. More capable, and more to
 #                  go wrong when a 2-3B model is the one choosing.
 #
-# arm64 is a supported target - Nous ship a Termux/Android path - so the Pi is
-# not exotic here. The constraint is the model, not the harness: Nous' own Ollama
-# guide points at 32 GB for the models this is really meant to drive. On 8 GB
-# with a 3B model, expect small tasks rather than the general-purpose agent it
-# is on a workstation.
+# EXPECT THIS NOT TO WORK WELL ON AN 8 GB PI. Nous state that "every recommended
+# model gets at least a 64K context window", and they size against GPU memory -
+# "a GPU with 8 GB+ runs the small catalog models comfortably". The Pi has no GPU
+# and must hold everything in system RAM, so the KV cache alone rules it out:
+#
+#   model               weights   KV @ 8K   KV @ 64K   total @ 64K
+#   qwen3.5:4b-q4_K_M     2.5 GB    1.1 GB     9.0 GB      11.5 GB
+#   hermes3:3b            2.0 GB    0.9 GB     7.0 GB       9.0 GB
+#   gemma-4-E2B           3.0 GB    0.9 GB     7.5 GB      10.5 GB
+#
+# (fp16 KV cache, approximate layer/head counts, before the OS.) Every row
+# exceeds 8 GB at the context Hermes expects. It is installed here because it is
+# worth having on a bigger machine, not because it will shine on this one.
+# bin/pi5-agent and opencode are the ones sized for this hardware.
 APP_DESCRIPTION="Nous Research agent harness"
 
 app_install() {
@@ -80,4 +89,12 @@ app_install() {
 	log ""
 	log "Note: Hermes has a terminal tool, so it can run commands on this Pi."
 	log "bin/pi5-agent is the constrained alternative if you want branch-only writes."
+
+	local ram_gb
+	ram_gb="$(awk '/MemTotal/ {printf "%.0f", $2/1024/1024}' /proc/meminfo 2>/dev/null || echo 0)"
+	if [ "$ram_gb" != "0" ] && [ "$ram_gb" -lt 16 ] 2>/dev/null; then
+		warn "this machine has ${ram_gb} GB; Hermes expects a 64K context window"
+		log "the KV cache alone at 64K is 7-9 GB for a 3-4B model, before the OS"
+		log "expect it to struggle here. On this hardware use:  pi5-agent, opencode"
+	fi
 }

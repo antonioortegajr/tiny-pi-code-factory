@@ -111,6 +111,16 @@ else
 	fi
 fi
 
+step "Context budget"
+# Agents differ enormously in how much context they assume. Saying so here beats
+# discovering it when one silently truncates its own instructions.
+ctx="${LMS_CONTEXT:-8192}"
+log "configured context: $ctx tokens"
+log "pi5-agent and opencode are sized for this; both keep a short tool menu"
+if [ -n "$ram_total" ]; then
+	awk -v r="$ram_total" 'BEGIN { exit !(r < 16) }' && 		note "hermes-agent expects 64K; at ${ram_total} GB the KV cache alone would not fit" && 		fix "use pi5-agent or opencode on this machine"
+fi
+
 step "GitHub"
 if has_cmd gh; then
 	if as_user gh auth status >/dev/null 2>&1; then

@@ -420,11 +420,25 @@ browser control — driven by whichever local model you are already running. It
 speaks to Ollama, LM Studio, vLLM, SGLang and llama.cpp, so it slots onto the
 backend this repo already sets up.
 
-arm64 is a supported target — Nous ship a Termux/Android path — so the Pi is not
-exotic. **The constraint is the model, not the harness.** Nous' own Ollama guide
-points at 32 GB for the models this is really meant to drive; on an 8 GB Pi with
-a 3B model, expect it to manage small tasks rather than behave like it does on a
-workstation.
+**Expect this not to work well on an 8 GB Pi.** Nous state that *"every
+recommended model gets at least a 64K context window"*, and they size against
+GPU memory — *"a GPU with 8 GB+ runs the small catalog models comfortably."* The
+Pi has no GPU and holds everything in system RAM, so the KV cache alone settles
+it:
+
+| Model | Weights | KV @ 8K | KV @ 64K | Total @ 64K |
+| --- | --- | --- | --- | --- |
+| `qwen3.5:4b-q4_K_M` | 2.5 GB | 1.1 GB | 9.0 GB | **11.5 GB** |
+| `hermes3:3b` | 2.0 GB | 0.9 GB | 7.0 GB | **9.0 GB** |
+| `gemma-4-E2B` | 3.0 GB | 0.9 GB | 7.5 GB | **10.5 GB** |
+
+fp16 KV cache, approximate layer and head counts, before the OS. Every row
+exceeds 8 GB at the context Hermes expects.
+
+arm64 itself is fine — Nous ship a Termux path — so this is a memory ceiling,
+not a portability one. It is installed here because it is worth having on a
+bigger machine. **On the Pi, use `pi5-agent` or `opencode`**, both of which keep
+a short tool menu and work inside 8K.
 
 It also has a **terminal tool**, so it can run commands on the Pi. That is the
 point of it, and it is a different bargain from `pi5-agent`'s branch-only
