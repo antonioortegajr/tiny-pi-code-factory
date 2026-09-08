@@ -45,6 +45,7 @@ app_install() {
 		printf 'TELEGRAM_ALLOW_WRITE=%s\n' "${TELEGRAM_ALLOW_WRITE:-0}"
 		printf 'GITHUB_DIR=%s\n' "$GITHUB_DIR"
 		printf 'TELEGRAM_REPOS=%s\n' "${TELEGRAM_REPOS:-}"
+		printf 'TELEGRAM_PASSPHRASE=%s\n' "${TELEGRAM_PASSPHRASE:-}"
 		printf 'AGENT_BASE_URL=%s\n' "${AGENT_BASE_URL:-http://127.0.0.1:${LMS_PORT:-1234}/v1}"
 	} | write_file "$envfile" 0600
 
@@ -81,6 +82,9 @@ UNIT
 	log ""
 	log "message your bot /help to check it"
 	log "it takes four commands and nothing else - there is no chat path to the model"
+	if [ -n "${TELEGRAM_PASSPHRASE:-}" ]; then
+		log "passphrase required: prefix every message with it"
+	fi
 	if [ "${TELEGRAM_ALLOW_WRITE:-0}" = "1" ]; then
 		warn "writes are ENABLED: /work <repo> can open draft PRs"
 	else

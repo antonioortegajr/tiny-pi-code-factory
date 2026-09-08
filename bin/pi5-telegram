@@ -22,8 +22,17 @@ stranger who finds the bot could drive it, so this refuses to start unless
 TELEGRAM_ALLOWED_IDS is set, and ignores every message from anyone else. Repos
 are limited to checkouts under GITHUB_DIR, so a message cannot name an
 arbitrary path.
+
+TELEGRAM_PASSPHRASE adds a second lock, checked after the allowlist. Note what
+it does and does not buy: against a stranger it is redundant, since they never
+get past the chat id. It earns its place if your own Telegram account is
+compromised or your unlocked phone is borrowed - the allowlist checks who you
+are, the passphrase checks what you know. It is not a strong secret either way,
+since it sits in plaintext chat history on both devices and on Telegram's
+servers.
 """
 
+import hmac
 import json
 import os
 import subprocess
@@ -36,6 +45,10 @@ import urllib.request
 TOKEN = os.environ.get("TELEGRAM_TOKEN", "").strip()
 ALLOWED = {i.strip() for i in os.environ.get("TELEGRAM_ALLOWED_IDS", "").split(",") if i.strip()}
 ALLOW_WRITE = os.environ.get("TELEGRAM_ALLOW_WRITE", "0") == "1"
+# Optional second lock. Checked after the allowlist, so anyone who reaches it is
+# already a known chat id - which is why a mismatch here gets an answer while an
+# unlisted chat gets silence.
+PASSPHRASE = os.environ.get("TELEGRAM_PASSPHRASE", "").strip()
 GITHUB_DIR = os.environ.get("GITHUB_DIR", os.path.expanduser("~/GitHub"))
 # Optional narrowing: a comma-separated list of repo names. Empty means any
 # checkout under GITHUB_DIR.
@@ -113,6 +126,21 @@ def available_repos():
     return names
 
 
+def check_passphrase(text):
+    """Returns the message with the passphrase stripped, or None if it is wrong.
+
+    Compared with compare_digest out of habit rather than need - the timing
+    signal over a polled chat API is noise - but it costs nothing.
+    """
+    if not PASSPHRASE:
+        return text
+    stripped = text.strip()
+    prefix = stripped[:len(PASSPHRASE)]
+    if not hmac.compare_digest(prefix, PASSPHRASE):
+        return None
+    return stripped[len(PASSPHRASE):].strip()
+
+
 def handle(text, chat_id):
     cmd = text.strip()
     parts = cmd.split()
@@ -170,6 +198,7 @@ def main():
     log(f"allowed chat ids: {', '.join(sorted(ALLOWED))}")
     log(f"writes: {'enabled' if ALLOW_WRITE else 'disabled (preview only)'}")
     log(f"repos: {', '.join(available_repos()) or f'none found under {GITHUB_DIR}'}")
+    log(f"passphrase: {'required' if PASSPHRASE else 'not set'}")
 
     offset = None
     while True:
@@ -196,9 +225,19 @@ def main():
                 log(f"ignoring message from unlisted chat {chat_id}")
                 continue
 
-            log(f"{chat_id}: {text[:80]}")
+            body = check_passphrase(text)
+            if body is None:
+                # An allowlisted chat that got the phrase wrong is almost
+                # certainly you mistyping, so say so rather than look broken.
+                log(f"wrong passphrase from {chat_id}")
+                send(chat_id, "I don't know you.")
+                continue
+            if not body:
+                body = "/help"
+
+            log(f"{chat_id}: {body[:80]}")
             try:
-                send(chat_id, handle(text, chat_id))
+                send(chat_id, handle(body, chat_id))
             except Exception as exc:              # noqa: BLE001
                 log(f"handler failed: {exc}")
                 send(chat_id, f"Something broke handling that: {exc}")

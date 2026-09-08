@@ -403,6 +403,7 @@ model will not work a vague ticket, and `write_file` replaces whole files.
 TELEGRAM_TOKEN=123456:ABC...        # from @BotFather
 TELEGRAM_ALLOWED_IDS=987654321      # from @userinfobot
 TELEGRAM_ALLOW_WRITE=1              # let it actually open PRs
+TELEGRAM_PASSPHRASE=opensesame      # optional second lock
 ```
 
 ```sh
@@ -439,6 +440,24 @@ workflow you have already reviewed.
   `TELEGRAM_REPOS`.
 - **Writes are off by default.** Without `TELEGRAM_ALLOW_WRITE=1`, `/work`
   reports what it would have done. With it, still draft PRs only.
+
+**Optional passphrase.** With `TELEGRAM_PASSPHRASE` set, every message must
+start with it (`opensesame /work my-repo`) or the bot replies *"I don't know
+you."*
+
+Be clear about what that buys, since it is checked **after** the allowlist:
+against a stranger it is redundant — they never get past the chat id, and are
+met with silence rather than a reply. It earns its place in a narrower case: if
+your own Telegram account is compromised, or someone picks up your unlocked
+phone. The allowlist checks *who you are*; the passphrase checks *what you
+know*.
+
+It is not a strong secret either way — it sits in plaintext chat history on both
+devices and on Telegram's servers. Treat it as a speed bump, not a lock.
+
+A wrong passphrase does get an answer, unlike an unlisted chat. That is
+deliberate: anyone reaching this check is already an allowlisted id, so it is
+almost certainly you mistyping, and silence would just look broken.
 
 The token is written to `/etc/my-pi5-setup/telegram.env` at mode 0600, not into
 the systemd unit — `systemctl show` prints `Environment=` lines to any local
