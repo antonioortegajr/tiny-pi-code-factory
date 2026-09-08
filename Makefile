@@ -9,7 +9,7 @@ LLM_APP ?= lm-studio
 S     := ./scripts
 ARGS  ?=
 
-.PHONY: all dark base storage ssd-state dev harden preflight apps app network mirror llm llm-test doctor queue \
+.PHONY: all dark base storage ssd-state dev harden preflight apps app network mirror llm llm-test doctor queue labels \
         dark-desktop dark-terminal dark-apps dark-system \
         capture capture-theme apply-captured restore-packages check help
 
@@ -41,7 +41,11 @@ llm: preflight
 	@echo "Server is up. Next:  lms get --help   then   lms load <model>"
 	@echo "Finish the rest whenever:  make all"
 
-## queue            work every GitHub issue labelled pi-agent, opening draft PRs
+## labels           create the agent:queued / agent:done / agent:failed labels
+labels:
+	@$(S)/97-labels.sh $(ARGS)
+
+## queue            work every GitHub issue labelled agent:queued, opening draft PRs
 # Read-only without ARGS. Pass ARGS=--allow-write to actually do the work.
 queue:
 	@bin/pi5-agent --queue $(ARGS)

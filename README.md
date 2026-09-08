@@ -161,7 +161,8 @@ screen attached to the Pi.
 | `make llm` | fast path to a working local model, skipping the slow apt upgrade |
 | `make llm-test` | prove the local AI works: inference, speed, tool calling |
 | `make doctor` | check the whole chain and say what to fix |
-| `make queue` | work every GitHub issue labelled `pi-agent`, opening draft PRs |
+| `make queue` | work every GitHub issue labelled `agent:queued`, opening draft PRs |
+| `make labels` | create the `agent:*` labels in a repo |
 | `make network` | verify the Pi can reach github.com, join Wi-Fi if configured |
 | `make base` | updates, hostname, timezone, locale, core packages |
 | `make storage` | boot order check, HAT SSD mount, zram, trim |
@@ -344,7 +345,25 @@ Covered below.
 
 ### Label-driven queue
 
-Tag an issue **`pi-agent`** and the Pi will pick it up:
+Three labels, one per state. Create them once per repo:
+
+```sh
+make labels                    # this checkout
+make labels ARGS=owner/name    # anywhere else
+```
+
+| Label | Meaning | Colour |
+| --- | --- | --- |
+| `agent:queued` | you want the agent to attempt this | blue |
+| `agent:done` | draft PR opened, awaiting your review | green |
+| `agent:failed` | agent could not do it, no PR | red |
+
+They are a state machine rather than a category, which is why they read
+`agent:state` — the prefix groups them in GitHub's label dropdown, and the names
+stay accurate if this queue ever runs somewhere other than the Pi. Change them
+with `AGENT_LABEL` and friends.
+
+Then tag an issue **`agent:queued`**:
 
 ```sh
 make queue                        # list what it would work - read-only
@@ -352,8 +371,8 @@ make queue ARGS=--allow-write     # actually work them
 ```
 
 For each labelled issue it branches, edits, commits, opens a **draft PR**, then
-relabels the issue `pi-agent-done` and comments with the PR link. Failures get
-`pi-agent-failed` and a comment saying no PR was opened. Nothing is merged or
+relabels the issue `agent:done` and comments with the PR link. Failures get
+`agent:failed` and a comment saying no PR was opened. Nothing is merged or
 closed — that stays yours.
 
 Idempotence comes from two places: the label swap, and the branch. An issue

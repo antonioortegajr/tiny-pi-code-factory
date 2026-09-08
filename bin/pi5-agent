@@ -8,7 +8,7 @@ tool layer.
 
   pi5-agent --selftest              can the model call tools at all?
   pi5-agent --backend ollama ...    talk to Ollama instead of LM Studio
-  pi5-agent --queue --allow-write   work every issue labelled pi-agent
+  pi5-agent --queue --allow-write   work every issue labelled agent:queued
   pi5-agent --issue 12              read issue 12, branch, work it, open a draft PR
   pi5-agent "summarise open issues" read-only question
 
@@ -451,9 +451,9 @@ def agent_loop(prompt, tools, include_write):
     return 0
 
 
-LABEL = os.environ.get("AGENT_LABEL", "pi-agent")
-LABEL_DONE = os.environ.get("AGENT_LABEL_DONE", "pi-agent-done")
-LABEL_FAILED = os.environ.get("AGENT_LABEL_FAILED", "pi-agent-failed")
+LABEL = os.environ.get("AGENT_LABEL", "agent:queued")
+LABEL_DONE = os.environ.get("AGENT_LABEL_DONE", "agent:done")
+LABEL_FAILED = os.environ.get("AGENT_LABEL_FAILED", "agent:failed")
 
 
 def queue(args):
