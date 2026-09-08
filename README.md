@@ -94,8 +94,8 @@ Paste is not disabled — Raspberry Pi OS uses **`Ctrl+Shift+V`**, not `Ctrl+V`,
 because `Ctrl+C` is SIGINT and cannot be a copy key. Right-click → Paste and
 middle-click also work.
 
-Easiest is not to fight it: **SSH in from your Mac** and paste there. Imager
-already put your key on the image, so `ssh pi5.local` works on first boot.
+Easiest is not to fight it: **SSH in from your Mac** and paste there — by
+password if you did not give Imager a key.
 
 After the first run, `make dark` binds copy and paste explicitly in
 `lxterminal.conf`.

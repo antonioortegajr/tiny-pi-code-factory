@@ -22,7 +22,9 @@ apt_install $BASE_PACKAGES
 step "Hostname, timezone, locale"
 
 current_host="$(hostnamectl --static 2>/dev/null || cat /etc/hostname)"
-if [ "$current_host" = "$PI_HOSTNAME" ]; then
+if [ -z "${PI_HOSTNAME:-}" ]; then
+	skip "hostname left as '$current_host' (set PI_HOSTNAME to override)"
+elif [ "$current_host" = "$PI_HOSTNAME" ]; then
 	skip "hostname already $PI_HOSTNAME"
 else
 	run_change sudo hostnamectl set-hostname "$PI_HOSTNAME"
