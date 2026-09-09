@@ -32,12 +32,12 @@ MODEL = os.environ.get("AGENT_MODEL_ID", "")
 MAX_TURNS = int(os.environ.get("AGENT_MAX_TURNS", "20"))
 MAX_TOOL_CHARS = int(os.environ.get("AGENT_MAX_TOOL_CHARS", "4000"))
 BRANCH_PREFIX = os.environ.get("AGENT_BRANCH_PREFIX", "agent/")
-# When the agent works this repo, it can edit its own code, and a bad edit to
-# pi5-agent breaks every later run. Docs and config stay writable - only the
-# executable parts are off limits.
 SELF_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PROTECTED = [p for p in os.environ.get(
-    "AGENT_PROTECTED_PATHS", "bin/,lib/,scripts/,apps/,Makefile").split(",") if p]
+# Empty by default. Work on this repo lands on a branch as a draft PR like any
+# other, and reviewing that PR is the guard - a blanket write ban would also
+# stop you asking the agent to improve its own scripts, which is reasonable.
+# Set it if you want belt and braces.
+PROTECTED = [p for p in os.environ.get("AGENT_PROTECTED_PATHS", "").split(",") if p]
 # Repo-specific instructions get prepended to the system prompt. AGENTS.md is the
 # cross-tool convention (opencode reads it too), so one file steers both agents.
 # Bounded, because context here is 8K and the tool results have to fit in it.
@@ -702,10 +702,19 @@ def agent_loop(prompt, tools, include_write):
         warn(f"gave up after {MAX_TURNS} turns")
 
     if tools.branch:
+        default = tools.default_branch()
         print(f"\n{BOLD}Review it:{RST}")
-        print(f"  git -C {tools.workdir} diff {tools.default_branch()}...{tools.branch}")
+        print(f"  git -C {tools.workdir} diff {default}...{tools.branch}")
         print(f"  gh pr view --web")
         print(f"\nNothing was merged or closed. That is your call.")
+
+        # If it just edited its own code, do not leave that code checked out -
+        # the next run would execute an unreviewed pi5-agent. The work is
+        # committed on the branch, so nothing is lost.
+        if os.path.realpath(tools.workdir) == os.path.realpath(SELF_REPO):
+            tools._git("switch", default)
+            print(f"{DIM}  back on {default}; the next run uses reviewed code{RST}")
+            print(f"{DIM}  to inspect:  git switch {tools.branch}{RST}")
     return 0
 
 

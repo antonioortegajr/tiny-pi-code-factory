@@ -572,8 +572,10 @@ lands anywhere you have to undo**:
   the agent's work and not tangled with your own.
 - `gh` and `git` run with fixed argv, never a shell string.
 - File access is confined to the checkout, and `.git/` internals are off limits.
-- Working on **this** repo, it cannot edit its own code — `bin/`, `lib/`,
-  `scripts/`, `apps/` and `Makefile` are refused, docs and config are not.
+- Working on **this** repo it may edit its own code — the draft PR is the guard
+  — but it returns to the default branch afterwards, so the next run never
+  executes unreviewed code. `AGENT_PROTECTED_PATHS` bans paths outright if you
+  want that instead.
 
 Local edits on a throwaway branch do *not* prompt — they are reviewable and
 revertible, so per-write confirmation would just be noise. Only the two outward

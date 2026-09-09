@@ -195,21 +195,28 @@ is a daemon and meant to be.
 
 ## Working on itself
 
-The agent can be pointed at `my-pi5-setup`, which means it can edit its own
-code — and a bad edit to `bin/pi5-agent` breaks every later run, including the
-one that would fix it.
+The agent can be pointed at `my-pi5-setup`, so it can edit its own code. That is
+allowed, because the guard is the same one as everywhere else: the work lands on
+an `agent/` branch as a draft PR, and nothing reaches `main` without you merging
+it. Banning it outright would also stop you asking the agent to improve its own
+scripts, which is a reasonable thing to want.
 
-So when the working directory *is* this repo, writes to
-`AGENT_PROTECTED_PATHS` — `bin/`, `lib/`, `scripts/`, `apps/`, `Makefile` — are
-refused. Docs, README and `settings.env` stay editable, which is most of what
-you would sensibly ask it to do here anyway.
+**The residual risk is the checkout, not the merge.** After editing
+`bin/pi5-agent` the tree is sitting on that branch, and the *next* invocation
+would run the unreviewed version. So a run that touched this repo switches back
+to the default branch when it finishes. The work is committed on the branch and
+pushed, so nothing is lost:
 
-The check is scoped: in any other repo those paths mean nothing and are
-writable like anything else.
+```sh
+git switch agent/issue-12    # to inspect it
+```
 
-`opencode` edits files itself, so a write-time guard cannot reach it. There the
-check runs after the handoff: if it touched a protected path, the changes are
-reverted and nothing is committed.
+`make queue` already did this between issues; now single `--issue` runs do too.
+
+If you want belt and braces anyway, `AGENT_PROTECTED_PATHS` refuses writes to
+matching paths in this repo — `bin/,lib/,scripts/,apps/,Makefile` is the
+sensible value. Empty by default. For an `opencode` handoff the same list is
+checked after the fact, since opencode edits files itself.
 
 ## Limits worth knowing before you rely on it
 
