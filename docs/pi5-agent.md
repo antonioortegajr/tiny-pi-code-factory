@@ -5,9 +5,28 @@ Python, no pip dependencies, ~500 lines. Drop it into any repo's harness.
 
 ## What spec does it follow?
 
-**Only the OpenAI chat-completions tool-calling format.** `tools` goes out,
-`tool_calls` comes back, results return as `role: "tool"` messages. That is the
-entire standard involved.
+**The OpenAI chat-completions tool-calling format, with a fallback of its own.**
+`tools` goes out, `tool_calls` comes back, results return as `role: "tool"`
+messages.
+
+When the runtime cannot produce `tool_calls` — common, since parsing a model's
+tool format lags its release — the agent switches to a text protocol instead of
+giving up:
+
+```
+TOOL: read_file
+ARGS: {"path": "README.md"}
+```
+
+The model writes those two lines, the agent parses them and feeds the result
+back as ordinary text. Every tool, guard rail and the queue work identically;
+only the transport changes. `AGENT_TOOL_MODE=auto` probes native once per run
+and falls back, reusing that first reply if it already came back in the text
+format rather than paying for another round.
+
+This is how agents worked before native tool calling existed, and on a small
+model it is often the more reliable of the two — a two-line format is easier to
+produce correctly than a JSON schema the runtime must also parse.
 
 It is deliberately **not**:
 
@@ -102,6 +121,7 @@ default branch.
 | `AGENT_MAX_TOOL_CHARS` | `4000` | truncation per tool result |
 | `AGENT_INSTRUCTIONS_MAX_CHARS` | `3000` | truncation for AGENTS.md |
 | `AGENT_SHOW_THINKING` | `0` | `1` keeps a reasoning model's narration |
+| `AGENT_TOOL_MODE` | `auto` | `native`, `text`, or `auto` (probe then fall back) |
 | `AGENT_BRANCH_PREFIX` | `agent/` | branch namespace |
 | `AGENT_LABEL` | `agent:queued` | queue trigger |
 

@@ -37,6 +37,9 @@ BRANCH_PREFIX = os.environ.get("AGENT_BRANCH_PREFIX", "agent/")
 AGENTS_MD_MAX = int(os.environ.get("AGENT_INSTRUCTIONS_MAX_CHARS", "3000"))
 # Reasoning models narrate before answering. Set AGENT_SHOW_THINKING=1 to keep it.
 SHOW_THINKING = os.environ.get("AGENT_SHOW_THINKING", "0") == "1"
+# native = OpenAI tool_calls. text = a plain TOOL:/ARGS: protocol the model
+# writes and we parse. auto probes native once and falls back.
+TOOL_MODE = os.environ.get("AGENT_TOOL_MODE", "auto").lower()
 
 _tty = sys.stdout.isatty()
 DIM, BOLD, RED, GRN, YEL, BLU, RST = (
@@ -292,6 +295,60 @@ SCHEMA = [
 ]
 
 
+TEXT_PROTOCOL = """
+To use a tool, reply with EXACTLY these two lines and nothing else:
+
+TOOL: <tool_name>
+ARGS: {"arg": "value"}
+
+Use {} for a tool that takes no arguments. One tool per reply. After you see the
+result you may use another tool, or give your final answer as plain prose with
+no TOOL: line.
+
+Available tools:
+"""
+
+_TEXT_CALL = re.compile(
+    r"TOOL:\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:\n+ARGS:\s*(\{.*?\}))?\s*(?:\n|\Z)",
+    re.S)
+
+
+def tools_as_text(specs):
+    """Describe the tools in prose, for a model whose runtime cannot parse
+    native tool calls."""
+    lines = []
+    for spec in specs:
+        fn = spec["function"]
+        props = fn["parameters"].get("properties", {})
+        required = set(fn["parameters"].get("required", []))
+        if props:
+            args = ", ".join(
+                f"{k}{'' if k in required else '?'}" for k in props)
+        else:
+            args = "no arguments"
+        lines.append(f"- {fn['name']}({args}) - {fn['description']}")
+    return TEXT_PROTOCOL + "\n".join(lines)
+
+
+def parse_text_call(content):
+    """Pull a TOOL:/ARGS: pair out of a plain reply. Returns (name, args) or
+    None if the model answered rather than called something."""
+    if not content:
+        return None
+    match = _TEXT_CALL.search(content)
+    if not match:
+        return None
+    name = match.group(1)
+    raw = (match.group(2) or "{}").strip()
+    try:
+        args = json.loads(raw)
+    except json.JSONDecodeError:
+        return (name, None)          # signalled a call but mangled the JSON
+    if not isinstance(args, dict):
+        return (name, None)
+    return (name, args)
+
+
 def tool_specs(include_write):
     out = []
     for name, desc, props, required, needs_write in SCHEMA:
@@ -329,8 +386,10 @@ def loaded_model():
         return None
 
 
-def chat(messages, tools):
-    payload = {"messages": messages, "tools": tools, "temperature": 0.2}
+def chat(messages, tools=None):
+    payload = {"messages": messages, "temperature": 0.2}
+    if tools:
+        payload["tools"] = tools
     if MODEL:
         payload["model"] = MODEL
     if not SHOW_THINKING:
@@ -403,25 +462,43 @@ def selftest():
         print(f"   {DIM}{elapsed:.1f}s to first complete answer{RST}")
 
     print(f"\n{BOLD}4. tool calling{RST}")
-    print(f"   {DIM}offering tools and asking it to list issues{RST}")
+    specs = tool_specs(include_write=False)
+
+    print(f"   {DIM}trying native tool_calls…{RST}")
     msg = chat([{"role": "system", "content": "You have tools. Use them rather than guessing."},
                 {"role": "user", "content": "List the open issues in this repository."}],
-               tool_specs(include_write=False))
+               specs)
     calls = msg.get("tool_calls") or []
     if calls:
         names = ", ".join(c["function"]["name"] for c in calls)
-        print(f"   {GRN}ok{RST}  returned tool_calls: {names}")
-        print(f"\n{GRN}{BOLD}Local AI is working.{RST} pi5-agent, opencode and hermes can all use it.")
+        print(f"   {GRN}ok{RST}  native tool_calls: {names}")
+        print(f"\n{GRN}{BOLD}Local AI is working.{RST} pi5-agent runs in native mode.")
         return 0
 
-    print(f"   {RED}FAIL{RST} no tool_calls; it replied with text instead:")
+    print(f"   {YEL}--{RST}  no native tool_calls from this runtime")
+    print(f"   {DIM}trying the text protocol instead…{RST}")
+
+    # Native tool calling is a convenience, not a requirement. A model that can
+    # follow a two-line format can drive every tool here just as well.
+    msg = chat([{"role": "system",
+                 "content": "You are a tool-using assistant.\n" + tools_as_text(specs)},
+                {"role": "user", "content": "List the open issues in this repository."}],
+               None)
+    parsed = parse_text_call(msg.get("content") or "")
+    if parsed and parsed[1] is not None:
+        print(f"   {GRN}ok{RST}  text protocol: {parsed[0]}({parsed[1]})")
+        print(f"\n{GRN}{BOLD}Local AI is working.{RST} pi5-agent will use the text")
+        print("protocol automatically - AGENT_TOOL_MODE=auto probes and falls back.")
+        return 0
+    if parsed:
+        print(f"   {YEL}--{RST}  called {parsed[0]} but the ARGS JSON was malformed")
+        print("   Usable, but expect retries. A different model may do better.")
+        return 1
+
+    print(f"   {RED}FAIL{RST} neither protocol produced a tool call. It replied:")
     print(DIM + "   " + (msg.get("content") or "(empty)")[:300] + RST)
-    print(f"\n{YEL}Inference works, tool calling does not.{RST}")
-    print("The model emits tool calls in its own format and the runtime has to parse")
-    print("them into OpenAI-shaped tool_calls. That parsing is what is missing.")
-    print("\nChat and opencode will still work. pi5-agent and hermes-agent need this.")
-    print("Known-good combination to fall back to:")
-    print("  make app APP=ollama && pi5-agent --backend ollama --selftest")
+    print("\nInference works, so chat and opencode are fine. For the agent, try a")
+    print("model trained for tool use:  ollama pull hermes3:3b")
     return 1
 
 
@@ -468,52 +545,92 @@ def repo_instructions(workdir):
     return None, "", False
 
 
+def dispatch(tools, name, args, turn, mode):
+    """Run one tool call and return its result string."""
+    if args is None:
+        return ("error: ARGS was not valid JSON. Reply with exactly:\n"
+                'TOOL: <name>\nARGS: {"key": "value"}')
+    fn = getattr(tools, name, None)
+    if fn is None:
+        return f"error: no such tool: {name}"
+    shown = ", ".join(
+        f"{k}={(v[:40] + '…') if isinstance(v, str) and len(v) > 40 else v!r}"
+        for k, v in args.items())
+    print(f"{DIM}  [{turn}] {name}({shown}){RST}")
+    try:
+        result = fn(**args)
+    except TypeError as exc:
+        return f"error: wrong arguments for {name}: {exc}"
+    if len(result) > MAX_TOOL_CHARS:
+        result = result[:MAX_TOOL_CHARS] + "\n...(truncated)"
+    return result
+
+
 def agent_loop(prompt, tools, include_write):
     system = SYSTEM
     name, extra, truncated = repo_instructions(tools.workdir)
     if extra:
         system += f"\n\n--- Project instructions from {name} ---\n{extra}"
         note = f"{DIM}  using {name}"
-        if truncated:
-            note += f" (truncated to {AGENTS_MD_MAX} chars){RST}"
-        else:
-            note += RST
+        note += f" (truncated to {AGENTS_MD_MAX} chars){RST}" if truncated else RST
         print(note)
+
+    specs = tool_specs(include_write)
+    mode = TOOL_MODE if TOOL_MODE in ("native", "text") else "auto"
+
+    if mode == "text":
+        system += "\n" + tools_as_text(specs)
 
     messages = [{"role": "system", "content": system},
                 {"role": "user", "content": prompt}]
-    specs = tool_specs(include_write)
 
-    for turn in range(MAX_TURNS):
-        msg = chat(messages, specs)
+    for turn in range(1, MAX_TURNS + 1):
+        msg = chat(messages, specs if mode != "text" else None)
         calls = msg.get("tool_calls") or []
-        if not calls:
-            print("\n" + (msg.get("content") or "(no answer)").strip())
-            break
-        messages.append(msg)
-        for call in calls:
-            name = call["function"]["name"]
-            try:
-                args = json.loads(call["function"].get("arguments") or "{}")
-            except json.JSONDecodeError:
-                result = "error: arguments were not valid JSON"
+        content = msg.get("content") or ""
+
+        # A model whose runtime cannot emit tool_calls is not broken, it just
+        # needs asking differently. Probe once, then commit to the protocol
+        # that works for the rest of the run.
+        if mode == "auto":
+            if calls:
+                mode = "native"
             else:
-                fn = getattr(tools, name, None)
-                if fn is None:
-                    result = f"error: no such tool: {name}"
-                else:
-                    shown = ", ".join(
-                        f"{k}={(v[:40] + '…') if isinstance(v, str) and len(v) > 40 else v!r}"
-                        for k, v in args.items())
-                    print(f"{DIM}  [{turn + 1}] {name}({shown}){RST}")
-                    try:
-                        result = fn(**args)
-                    except TypeError as exc:
-                        result = f"error: wrong arguments for {name}: {exc}"
-            if len(result) > MAX_TOOL_CHARS:
-                result = result[:MAX_TOOL_CHARS] + "\n...(truncated)"
-            messages.append({"role": "tool", "tool_call_id": call.get("id", name),
-                             "content": result})
+                mode = "text"
+                print(f"{DIM}  no native tool_calls; using the text protocol{RST}")
+                messages[0]["content"] = system + "\n" + tools_as_text(specs)
+                # If it already answered in the text format, keep that call
+                # rather than paying for another round - inference is slow here.
+                if not parse_text_call(content):
+                    continue
+
+        if mode == "native" and calls:
+            messages.append(msg)
+            for call in calls:
+                fname = call["function"]["name"]
+                try:
+                    fargs = json.loads(call["function"].get("arguments") or "{}")
+                except json.JSONDecodeError:
+                    fargs = None
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": call.get("id", fname),
+                    "content": dispatch(tools, fname, fargs, turn, mode),
+                })
+            continue
+
+        if mode == "text":
+            parsed = parse_text_call(content)
+            if parsed:
+                fname, fargs = parsed
+                result = dispatch(tools, fname, fargs, turn, mode)
+                messages.append({"role": "assistant", "content": content})
+                # No role:"tool" in this mode - the result comes back as user text.
+                messages.append({"role": "user", "content": f"TOOL RESULT:\n{result}"})
+                continue
+
+        print("\n" + (content or "(no answer)").strip())
+        break
     else:
         warn(f"gave up after {MAX_TURNS} turns")
 
