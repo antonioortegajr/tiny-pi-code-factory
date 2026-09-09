@@ -18,6 +18,7 @@ labels="
 ${AGENT_LABEL:-agent:queued}|1d76db|Queued for the local agent to attempt
 ${AGENT_LABEL_DONE:-agent:done}|0e8a16|Agent opened a draft PR - awaiting review
 ${AGENT_LABEL_FAILED:-agent:failed}|b60205|Agent could not complete it - no PR opened
+${AGENT_LABEL_OPENCODE:-agent:opencode}|5319e7|Hand this one to opencode instead of the built-in agent
 "
 
 printf '%s\n' "$labels" | while IFS='|' read -r name colour desc; do
@@ -37,4 +38,5 @@ done
 
 log ""
 log "Tag an issue '${AGENT_LABEL:-agent:queued}', then:  make queue ARGS=--allow-write"
+log "Add '${AGENT_LABEL_OPENCODE:-agent:opencode}' as well to route it through opencode."
 summary "labels"

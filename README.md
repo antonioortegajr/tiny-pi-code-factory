@@ -313,6 +313,7 @@ make labels ARGS=owner/name    # anywhere else
 | `agent:queued` | you want the agent to attempt this | blue |
 | `agent:done` | draft PR opened, awaiting your review | green |
 | `agent:failed` | agent could not do it, no PR | red |
+| `agent:opencode` | add alongside `agent:queued` to route it via opencode | purple |
 
 They are a state machine rather than a category, which is why they read
 `agent:state` — the prefix groups them in GitHub's label dropdown, and the names

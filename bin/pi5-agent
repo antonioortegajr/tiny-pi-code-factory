@@ -19,6 +19,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import urllib.error
@@ -678,6 +679,55 @@ def agent_loop(prompt, tools, include_write):
 LABEL = os.environ.get("AGENT_LABEL", "agent:queued")
 LABEL_DONE = os.environ.get("AGENT_LABEL_DONE", "agent:done")
 LABEL_FAILED = os.environ.get("AGENT_LABEL_FAILED", "agent:failed")
+# A second label hands the issue to opencode instead. Same model, but a more
+# developed harness - notably patch-based edits, where write_file here replaces
+# whole files. On an 8K context that is the difference between a small file and
+# a real one.
+LABEL_OPENCODE = os.environ.get("AGENT_LABEL_OPENCODE", "agent:opencode")
+
+
+def work_with_opencode(tools, num, title, body):
+    """Delegate one issue to the opencode CLI, inside our own guard rails.
+
+    We branch before handing over and commit and open the PR afterwards, so the
+    containment is unchanged: opencode edits files, but it never chooses the
+    branch, never touches the default branch, and never opens anything but a
+    draft.
+    """
+    if not shutil.which("opencode"):
+        return "opencode is not installed (make app APP=opencode)"
+
+    out = tools.git_branch(f"issue-{num}")
+    if out.startswith("error") or out.startswith("refused"):
+        return out
+
+    prompt = (f"Work GitHub issue #{num}: {title}\n\n{body}\n\n"
+              "Make the smallest change that addresses this. Do not commit or "
+              "push - that is handled for you.")
+
+    print(f"{DIM}  handing #{num} to opencode…{RST}")
+    try:
+        proc = subprocess.run(
+            ["opencode", "run", "--auto", "--dir", tools.workdir, prompt],
+            capture_output=True, text=True, timeout=3600)
+    except subprocess.TimeoutExpired:
+        return "opencode timed out after an hour"
+    tail = ((proc.stdout or "") + (proc.stderr or "")).strip().splitlines()[-15:]
+    print(DIM + "\n".join("  " + t for t in tail) + RST)
+
+    changed = tools._git("status", "--porcelain")
+    if not changed or changed.startswith("error"):
+        return "opencode made no changes"
+
+    commit = tools.git_commit(f"fix: {title}\n\nCloses #{num}. Written by opencode "
+                              f"on the Pi, unreviewed.")
+    if commit.startswith("error"):
+        return commit
+    return tools.gh_pr_create(
+        f"{title}",
+        f"Addresses #{num}.\n\nWritten by the local model via opencode on a "
+        f"Raspberry Pi. Unreviewed - please read the diff.")
+
 
 
 def queue(args):
@@ -690,7 +740,7 @@ def queue(args):
     probe = Tools(args.workdir, args.repo, False, True)
 
     listing = probe._gh("issue", "list", "--state", "open", "--label", LABEL,
-                        "--json", "number,title", "--limit", "20")
+                        "--json", "number,title,body,labels", "--limit", "20")
     if listing.startswith("error"):
         die(listing)
     try:
@@ -734,10 +784,18 @@ def queue(args):
             continue
 
         tools = Tools(args.workdir, args.repo, True, True)
-        prompt = (f"Work issue #{num}. Read it with gh_issue_view first, then find the "
-                  f"relevant code before changing anything. Use branch name issue-{num}.")
+        labels = {lab.get("name", "") for lab in (it.get("labels") or [])}
+
         try:
-            agent_loop(prompt, tools, True)
+            if LABEL_OPENCODE in labels:
+                result = work_with_opencode(tools, num, title, it.get("body") or "")
+                if result.startswith(("error", "refused", "opencode")):
+                    warn(f"#{num}: {result}")
+            else:
+                prompt = (f"Work issue #{num}. Read it with gh_issue_view first, then "
+                          f"find the relevant code before changing anything. Use "
+                          f"branch name issue-{num}.")
+                agent_loop(prompt, tools, True)
         except KeyboardInterrupt:
             # Interrupted is not failed. Leave the label alone so a rerun picks
             # this issue up again rather than needing it relabelled by hand.

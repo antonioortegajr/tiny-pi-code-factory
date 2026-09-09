@@ -119,6 +119,24 @@ never implied. `bin/pi5-queue-all` is what it runs: it checks the issue count
 with `gh` before waking the model, and reports any PR links over Telegram if
 that bridge is configured.
 
+### Handing an issue to opencode
+
+Label an issue **both** `agent:queued` and `agent:opencode` and the queue
+delegates it to `opencode run --auto` instead of the built-in loop.
+
+Same model — the win is the harness. `write_file` here replaces a whole file,
+which costs a full read plus a full write against 8K of context; opencode edits
+by patch. That is the difference between "works on small files" and "works on
+real ones".
+
+The guard rails do not change: this agent creates the branch before handing
+over, and commits and opens the draft PR afterwards. opencode edits files; it
+never picks the branch, never touches the default branch, and never opens
+anything but a draft.
+
+Rule of thumb: default loop for one-line and single-file changes, `agent:opencode`
+for anything touching a larger file or more than one.
+
 ## Environment
 
 | Variable | Default | Meaning |
