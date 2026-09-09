@@ -116,6 +116,15 @@ step "GitHub"
 if has_cmd gh; then
 	if as_user gh auth status >/dev/null 2>&1; then
 		ok "gh is authenticated"
+		# Without this the agent's git push has nothing to authenticate with and
+		# no terminal to ask at.
+		if as_user git config --global --get-regexp 'credential.*helper' 2>/dev/null \
+			| grep -q 'gh auth git-credential'; then
+			ok "git uses gh for credentials - the agent can push"
+		else
+			bad "git has no credential helper; the agent's push will fail"
+			fix "gh auth setup-git"
+		fi
 	else
 		bad "gh is not authenticated"
 		fix "gh auth login"

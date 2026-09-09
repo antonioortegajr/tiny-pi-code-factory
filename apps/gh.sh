@@ -60,6 +60,15 @@ app_install() {
 	if [ "$DRY_RUN" != "1" ] && has_cmd gh; then
 		if as_user gh auth status >/dev/null 2>&1; then
 			skip "gh is already authenticated"
+			# The agent pushes branches without a terminal to prompt at, so git
+			# needs a credential helper. gh already holds a usable token.
+			if as_user git config --global --get-regexp 'credential.*helper' \
+				| grep -q 'gh auth git-credential'; then
+				skip "git already uses gh for credentials"
+			else
+				as_user gh auth setup-git && changed "git now uses gh for credentials" \
+					|| warn "gh auth setup-git failed; pushes may prompt"
+			fi
 		else
 			log "gh is not authenticated yet. Run this yourself when convenient:"
 			log "  gh auth login"
@@ -67,6 +76,9 @@ app_install() {
 			log "For an agent, prefer a fine-grained token with read-only access to"
 			log "the repos you care about, rather than full account scope:"
 			log "  gh auth login --with-token < token.txt"
+			log ""
+			log "then run this, or the agent cannot push branches:"
+			log "  gh auth setup-git"
 		fi
 	fi
 
