@@ -10,6 +10,11 @@ AGENT="${AGENT_BIN:-$HERE/pi5-agent}"
 GITHUB_DIR="${GITHUB_DIR:-$HOME/GitHub}"
 # Optional narrowing. Empty means every git checkout under GITHUB_DIR.
 QUEUE_REPOS="${QUEUE_REPOS:-}"
+# 1 = search GitHub for labelled issues across your repos and clone any that
+# are not here yet. Off by default: without it this only ever touches repos you
+# have already chosen to put on this machine.
+QUEUE_DISCOVER="${QUEUE_DISCOVER:-0}"
+QUEUE_OWNER="${QUEUE_OWNER:-}"
 
 log() { printf '[pi5-queue] %s\n' "$*"; }
 
@@ -26,15 +31,57 @@ notify() {
 	done
 }
 
-repos() {
-	if [ -n "$QUEUE_REPOS" ]; then
-		printf '%s\n' ${QUEUE_REPOS//,/ }
-		return
-	fi
+local_repos() {
 	local d
 	for d in "$GITHUB_DIR"/*/; do
 		[ -d "$d/.git" ] && basename "$d"
 	done
+}
+
+# Ask GitHub which repos have a labelled issue, and clone the ones that are not
+# here. Without this an issue labelled in an uncloned repo is simply invisible.
+discover_and_clone() {
+	local owner="$QUEUE_OWNER"
+	if [ -z "$owner" ]; then
+		owner="$(gh api user --jq .login 2>/dev/null || true)"
+	fi
+	[ -n "$owner" ] || { log "cannot determine the GitHub owner; skipping discovery"; return 0; }
+
+	local found
+	found="$(gh search issues --owner "$owner" --label "${AGENT_LABEL:-agent:queued}" \
+		--state open --limit 50 --json repository \
+		--jq '.[].repository.name' 2>/dev/null | sort -u)"
+	if [ -z "$found" ]; then
+		return 0
+	fi
+
+	local name
+	for name in $found; do
+		# An allowlist still wins: discovery finds repos, it does not widen scope.
+		if [ -n "$QUEUE_REPOS" ] && ! printf '%s\n' ${QUEUE_REPOS//,/ } | grep -qx "$name"; then
+			log "discovery: skipping $name, not in QUEUE_REPOS"
+			continue
+		fi
+		if [ -d "$GITHUB_DIR/$name/.git" ]; then
+			continue
+		fi
+		log "cloning $owner/$name (has queued issues, not on this machine)"
+		mkdir -p "$GITHUB_DIR"
+		if gh repo clone "$owner/$name" "$GITHUB_DIR/$name" -- --depth 50 >/dev/null 2>&1; then
+			log "cloned $name"
+		else
+			log "could not clone $owner/$name"
+		fi
+	done
+}
+
+repos() {
+	[ "$QUEUE_DISCOVER" = "1" ] && discover_and_clone
+	if [ -n "$QUEUE_REPOS" ]; then
+		printf '%s\n' ${QUEUE_REPOS//,/ }
+		return
+	fi
+	local_repos
 }
 
 worked_total=0
@@ -53,6 +100,9 @@ for name in $(repos); do
 	fi
 
 	log "$name: $pending issue(s) queued"
+	# Branch off current work, not whatever was here last time.
+	( cd "$dir" && git fetch --quiet origin 2>/dev/null \
+		&& git merge --ff-only --quiet 2>/dev/null ) || true
 	out="$("$AGENT" --queue --allow-write -C "$dir" 2>&1)"
 	printf '%s\n' "$out"
 

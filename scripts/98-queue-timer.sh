@@ -46,6 +46,8 @@ env_files="/etc/my-pi5-setup/queue.env"
 	printf '# Managed by my-pi5-setup (scripts/98-queue-timer.sh)\n'
 	printf 'GITHUB_DIR=%s\n' "$GITHUB_DIR"
 	printf 'QUEUE_REPOS=%s\n' "${QUEUE_REPOS:-}"
+	printf 'QUEUE_DISCOVER=%s\n' "${QUEUE_DISCOVER:-0}"
+	printf 'QUEUE_OWNER=%s\n' "${QUEUE_OWNER:-}"
 	printf 'AGENT_LABEL=%s\n' "${AGENT_LABEL:-agent:queued}"
 	printf 'AGENT_BASE_URL=%s\n' "${AGENT_BASE_URL:-http://127.0.0.1:11434/v1}"
 } | write_file "$env_files" 0644
@@ -94,6 +96,13 @@ if [ "$DRY_RUN" != "1" ]; then
 		|| warn "could not enable pi5-queue.timer"
 fi
 
+log ""
+if [ "${QUEUE_DISCOVER:-0}" = "1" ]; then
+	log "discovery on: repos with labelled issues will be cloned into $GITHUB_DIR"
+else
+	log "discovery off: only repos already cloned into $GITHUB_DIR are checked"
+	log "  set QUEUE_DISCOVER=1 to have it find and clone the others"
+fi
 log ""
 log "label an issue '${AGENT_LABEL:-agent:queued}' and it will be picked up."
 log "  systemctl list-timers pi5-queue.timer     when it next runs"
