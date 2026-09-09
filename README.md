@@ -160,6 +160,7 @@ screen attached to the Pi.
 | `make llm-test` | prove the local AI works: inference, speed, tool calling |
 | `make doctor` | check the whole chain and say what to fix |
 | `make queue` | work every GitHub issue labelled `agent:queued`, opening draft PRs |
+| `make queue-timer` | poll GitHub for labelled issues unattended (`ARGS=off` stops) |
 | `make labels` | create the `agent:*` labels in a repo |
 | `make network` | verify the Pi can reach github.com, join Wi-Fi if configured |
 | `make base` | updates, hostname, timezone, locale, core packages |
@@ -335,12 +336,42 @@ whose `agent/issue-N` branch already exists on `origin` is treated as attempted
 and skipped, so a rerun after a crash does not duplicate work. Each issue starts
 from a clean default branch, or its diff would include the previous one's.
 
-Run it on a schedule if you like — it is just a command:
+### Leaving it running
 
 ```sh
-# crontab -e
-*/30 * * * * cd ~/GitHub/my-pi5-setup && make queue ARGS=--allow-write >> /tmp/queue.log 2>&1
+# settings.local.env
+QUEUE_AUTO=1
+QUEUE_INTERVAL=15min
 ```
+
+```sh
+make queue-timer
+```
+
+Installs `pi5-queue.timer`, which polls every repo under `~/GitHub` for
+`agent:queued` issues. Label an issue, close your laptop, review the draft PR
+later.
+
+```sh
+systemctl list-timers pi5-queue.timer   # when it next runs
+journalctl -u pi5-queue -f              # watch it work
+systemctl start pi5-queue               # run one cycle now
+make queue-timer ARGS=off               # stop
+```
+
+A systemd timer rather than cron, for three reasons: it will not start a second
+run while one is still going — which matters when a single issue takes ten
+minutes on this hardware — `Persistent=true` catches up after a reboot instead
+of waiting a full interval, and the output lands in the journal rather than a
+stray log file.
+
+Each cycle asks `gh` for the issue count before starting anything. Most cycles
+have nothing to do, and waking a 4B model to discover that would spend minutes
+of CPU the Pi does not have spare.
+
+**`QUEUE_AUTO=1` is required and defaults off.** This opens pull requests while
+you are not watching, so nothing else implies it. If the Telegram bridge is
+installed, a cycle that opens PRs sends you the links.
 
 Write issues for it accordingly: small, specific, one file where possible. A 4B
 model will not work a vague ticket, and `write_file` replaces whole files.

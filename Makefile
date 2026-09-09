@@ -8,7 +8,7 @@ SHELL := /bin/bash
 S     := ./scripts
 ARGS  ?=
 
-.PHONY: all dark base storage ssd-state dev harden preflight apps app network mirror llm llm-test doctor queue labels \
+.PHONY: all dark base storage ssd-state dev harden preflight apps app network mirror llm llm-test doctor queue labels queue-timer \
         dark-desktop dark-terminal dark-apps dark-system \
         capture capture-theme apply-captured restore-packages check help
 
@@ -48,6 +48,10 @@ labels:
 # Read-only without ARGS. Pass ARGS=--allow-write to actually do the work.
 queue:
 	@bin/pi5-agent --queue $(ARGS)
+
+## queue-timer      poll GitHub for labelled issues on a timer (ARGS=off to stop)
+queue-timer: preflight
+	@$(S)/98-queue-timer.sh $(ARGS)
 
 ## doctor           check the whole chain and say what to fix
 doctor: preflight

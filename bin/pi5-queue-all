@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# Work the agent:queued issues in every repo, then report what happened.
+#
+# Run by pi5-queue.timer. Kept separate from pi5-agent so the timer can cover
+# several checkouts, and so the notification logic stays out of the agent.
+set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AGENT="${AGENT_BIN:-$HERE/pi5-agent}"
+GITHUB_DIR="${GITHUB_DIR:-$HOME/GitHub}"
+# Optional narrowing. Empty means every git checkout under GITHUB_DIR.
+QUEUE_REPOS="${QUEUE_REPOS:-}"
+
+log() { printf '[pi5-queue] %s\n' "$*"; }
+
+notify() {
+	# Only if the Telegram bridge is configured. systemd reads the env file as
+	# root before dropping privileges, so the token is readable here without
+	# loosening its 0600.
+	[ -n "${TELEGRAM_TOKEN:-}" ] && [ -n "${TELEGRAM_ALLOWED_IDS:-}" ] || return 0
+	local id
+	for id in ${TELEGRAM_ALLOWED_IDS//,/ }; do
+		curl -fsS --max-time 15 -X POST \
+			"https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+			-d "chat_id=${id}" --data-urlencode "text=$1" >/dev/null 2>&1 || true
+	done
+}
+
+repos() {
+	if [ -n "$QUEUE_REPOS" ]; then
+		printf '%s\n' ${QUEUE_REPOS//,/ }
+		return
+	fi
+	local d
+	for d in "$GITHUB_DIR"/*/; do
+		[ -d "$d/.git" ] && basename "$d"
+	done
+}
+
+worked_total=0
+summary=""
+
+for name in $(repos); do
+	dir="$GITHUB_DIR/$name"
+	[ -d "$dir/.git" ] || { log "skip $name: not a checkout"; continue; }
+
+	# Cheap check first: most cycles have nothing to do, and starting the model
+	# for an empty queue wastes minutes of CPU on a board that has none spare.
+	pending="$(cd "$dir" && gh issue list --state open \
+		--label "${AGENT_LABEL:-agent:queued}" --json number --jq 'length' 2>/dev/null || echo 0)"
+	if [ "${pending:-0}" = "0" ]; then
+		continue
+	fi
+
+	log "$name: $pending issue(s) queued"
+	out="$("$AGENT" --queue --allow-write -C "$dir" 2>&1)"
+	printf '%s\n' "$out"
+
+	# Report only the PR links; the rest is in the journal.
+	prs="$(printf '%s\n' "$out" | grep -oE 'https://github\.com/[^ ]+/pull/[0-9]+' | sort -u)"
+	if [ -n "$prs" ]; then
+		worked_total=$((worked_total + $(printf '%s\n' "$prs" | grep -c .)))
+		summary="${summary}${name}:
+$prs
+"
+	fi
+done
+
+if [ "$worked_total" -gt 0 ]; then
+	log "$worked_total draft PR(s) opened"
+	notify "The Pi opened $worked_total draft PR(s):
+
+$summary
+Nothing was merged or closed."
+fi

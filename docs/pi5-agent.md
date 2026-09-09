@@ -111,6 +111,14 @@ Idempotence comes from the label swap plus the branch: an issue whose
 a rerun after a crash does not duplicate work. Each issue starts from a clean
 default branch.
 
+### Unattended
+
+`make queue-timer` installs a systemd timer that polls every checkout under
+`GITHUB_DIR`. Requires `QUEUE_AUTO=1` — it writes without supervision, so it is
+never implied. `bin/pi5-queue-all` is what it runs: it checks the issue count
+with `gh` before waking the model, and reports any PR links over Telegram if
+that bridge is configured.
+
 ## Environment
 
 | Variable | Default | Meaning |
