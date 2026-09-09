@@ -53,26 +53,34 @@ step "Model server"
 
 BACKEND=""
 ENDPOINT=""
+INSTALLED=""
 if systemctl is-active --quiet lmstudio-server 2>/dev/null; then
 	ok "lmstudio-server is running"
 	BACKEND="lmstudio"; ENDPOINT="http://127.0.0.1:${LMS_PORT:-1234}/v1"
 elif [ -x "$TARGET_HOME/.lmstudio/bin/lms" ]; then
+	INSTALLED="lmstudio"
 	bad "LM Studio is installed but lmstudio-server is not running"
-	fix "systemctl status lmstudio-server    journalctl -u lmstudio-server -n 30"
+	fix "journalctl -u lmstudio-server -n 30 --no-pager"
+	fix "if it will not start, switch backend:  make llm LLM_APP=ollama"
 fi
 
 if systemctl is-active --quiet ollama 2>/dev/null; then
 	ok "ollama is running"
 	[ -z "$BACKEND" ] && { BACKEND="ollama"; ENDPOINT="http://127.0.0.1:11434/v1"; }
 elif has_cmd ollama; then
+	INSTALLED="${INSTALLED:+$INSTALLED }ollama"
 	bad "ollama is installed but not running"
 	fix "sudo systemctl status ollama"
 fi
 
-if [ -z "$BACKEND" ]; then
+if [ -z "$BACKEND" ] && [ -z "$INSTALLED" ]; then
 	bad "no model server installed"
-	fix "make llm                    # LM Studio + Gemma 4"
-	fix "make llm LLM_APP=ollama     # Ollama + Hermes 3"
+	fix "make llm                    # LM Studio"
+	fix "make llm LLM_APP=ollama     # Ollama, fewer moving parts on Lite"
+elif [ -z "$BACKEND" ]; then
+	# Installed but dead is a different problem from absent, and saying
+	# "not installed" underneath "is installed" just reads as a broken check.
+	log "installed but not running: $INSTALLED"
 fi
 
 step "Model"
