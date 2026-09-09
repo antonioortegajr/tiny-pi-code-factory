@@ -38,6 +38,38 @@ SELF_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # stop you asking the agent to improve its own scripts, which is reasonable.
 # Set it if you want belt and braces.
 PROTECTED = [p for p in os.environ.get("AGENT_PROTECTED_PATHS", "").split(",") if p]
+
+# Shapes that are secrets wherever they appear. Deliberately narrow: a check
+# that cries wolf gets switched off, and then it protects nothing.
+SECRET_PATTERNS = [
+    (re.compile(r"github_pat_[A-Za-z0-9_]{20,}"), "GitHub fine-grained token"),
+    (re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}"), "GitHub token"),
+    (re.compile(r"-----BEGIN (?:RSA |OPENSSH |EC |DSA |PGP )?PRIVATE KEY"), "private key"),
+    (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "AWS access key id"),
+    (re.compile(r"\bsk-[A-Za-z0-9]{32,}"), "OpenAI-style API key"),
+    (re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}"), "Slack token"),
+    (re.compile(r"\b\d{9,10}:AA[A-Za-z0-9_-]{33}\b"), "Telegram bot token"),
+    (re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\."), "JWT"),
+]
+
+
+def scan_for_secrets(diff):
+    """Return a list of (label, line number) for secret-shaped strings in added
+    lines. Only added lines: what is already in the file is not this commit's
+    doing, and flagging it would block every commit to that file."""
+    hits = []
+    lineno = 0
+    for line in diff.splitlines():
+        if line.startswith("+++") or line.startswith("---"):
+            continue
+        if not line.startswith("+"):
+            continue
+        lineno += 1
+        for pattern, label in SECRET_PATTERNS:
+            if pattern.search(line):
+                hits.append((label, line[1:].strip()[:60]))
+                break
+    return hits
 # Repo-specific instructions get prepended to the system prompt. AGENTS.md is the
 # cross-tool convention (opencode reads it too), so one file steers both agents.
 # Bounded, because context here is 8K and the tool results have to fit in it.
@@ -255,6 +287,20 @@ class Tools:
         if self.branch == self.default_branch():
             return "refused: will not commit to the default branch."
         self._git("add", "-A")
+
+        # Check what is actually staged, after add, before commit. A secret in a
+        # diff is the one mistake that a later revert does not undo.
+        staged = self._git("diff", "--cached")
+        if staged and not staged.startswith("error"):
+            hits = scan_for_secrets(staged)
+            if hits:
+                self._git("reset")
+                lines = "\n".join(f"  {label}: {snippet}" for label, snippet in hits[:5])
+                print(f"{RED}  refusing to commit - possible secrets staged{RST}")
+                return ("refused: the staged changes look like they contain "
+                        f"secrets, so nothing was committed:\n{lines}\n"
+                        "Remove them, or add the file to .gitignore.")
+
         out = self._git("commit", "-m", message)
         return out if not out.startswith("error") else out
 

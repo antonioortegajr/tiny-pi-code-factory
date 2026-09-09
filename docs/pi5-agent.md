@@ -193,6 +193,28 @@ not change, and the run ends if it keeps going.
 The only unbounded loop in the repo is the Telegram bridge's polling loop, which
 is a daemon and meant to be.
 
+## Secret scanning
+
+Before committing, the agent scans the **staged diff** for secret-shaped
+strings — GitHub tokens, private key headers, AWS key ids, Slack and Telegram
+tokens, JWTs — and refuses the commit if it finds any, unstaging the change and
+saying what it saw.
+
+Three deliberate choices:
+
+- **Added lines only.** What is already in a file is not this commit's doing,
+  and flagging it would block every future commit to that file.
+- **After `git add`, before `git commit`.** The staged diff is exactly what
+  would be recorded.
+- **Narrow patterns.** A check that cries wolf gets switched off, and then it
+  protects nothing.
+
+This is not agent-specific insurance — committing a secret is a risk with any
+contributor. It is here because the agent commits, and a secret in git history
+is the one mistake a later revert does not undo. If you make a repo public,
+enable GitHub's push protection as well; it catches the same shapes server-side
+and does not depend on this running.
+
 ## Working on itself
 
 The agent can be pointed at `my-pi5-setup`, so it can edit its own code. That is
