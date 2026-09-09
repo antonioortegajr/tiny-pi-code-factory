@@ -78,19 +78,28 @@ if [ -z "${EXTRA_DISK:-}" ]; then
 elif [ -z "$SSD_MOUNT_POINT" ]; then
 	skip "SSD_MOUNT_POINT is empty, mounting disabled"
 else
-	# Largest partition on that disk that actually carries a filesystem.
+	# First filesystem on that disk. The disk's own line is included rather than
+	# skipped, because a single-purpose data disk is often formatted whole with
+	# no partition table at all - that is a perfectly good ext4 to mount.
 	part_uuid=""; part_fs=""; part_name=""
 	while read -r name fstype uuid; do
 		[ -n "$fstype" ] && [ -n "$uuid" ] || continue
 		case "$fstype" in vfat|swap) continue ;; esac
 		part_name="$name"; part_fs="$fstype"; part_uuid="$uuid"
 		break
-	done < <(lsblk -nr -o NAME,FSTYPE,UUID "/dev/$EXTRA_DISK" 2>/dev/null | tail -n +2)
+	done < <(lsblk -nr -o NAME,FSTYPE,UUID "/dev/$EXTRA_DISK" 2>/dev/null)
 
 	if [ -z "$part_uuid" ]; then
-		warn "/dev/$EXTRA_DISK has no mountable filesystem"
-		log "format it yourself when you are sure it is the right disk, e.g.:"
-		log "  sudo mkfs.ext4 -L ssd /dev/${EXTRA_DISK}1"
+		warn "/dev/$EXTRA_DISK has no filesystem"
+		log "size: $(lsblk -dn -o SIZE "/dev/$EXTRA_DISK" 2>/dev/null | tr -d ' ')" \
+			"  model: $(lsblk -dn -o MODEL "/dev/$EXTRA_DISK" 2>/dev/null | sed 's/  */ /g')"
+		log ""
+		log "This script will not format a disk for you. Check the device name is"
+		log "the SSD and not something you care about, then run it yourself:"
+		log ""
+		log "  sudo mkfs.ext4 -L ssd /dev/$EXTRA_DISK"
+		log ""
+		log "That formats the whole device, which is right for a data-only disk."
 		log "then rerun: make storage"
 	else
 		log "using /dev/$part_name ($part_fs, UUID=$part_uuid)"
