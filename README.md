@@ -689,6 +689,15 @@ install, where the SSD mounts:
 cp settings.env settings.local.env   # then edit
 ```
 
+At minimum set your git identity there — `settings.env` deliberately ships
+without one, so this repo carries nobody's details and a fork does not inherit
+someone else's name on its commits:
+
+```sh
+GIT_USER_NAME="Your Name"
+GIT_USER_EMAIL=you@example.com
+```
+
 ## How the dark theme holds
 
 Getting one account dark is easy; keeping it dark is the actual problem. Four

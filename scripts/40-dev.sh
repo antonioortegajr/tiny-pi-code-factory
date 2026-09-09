@@ -9,6 +9,13 @@ step "Developer packages"
 apt_install_optional $DEV_PACKAGES
 
 step "git"
+if [ -z "${GIT_USER_NAME:-}" ] && [ -z "${GIT_USER_EMAIL:-}" ]; then
+	# Without an identity, git refuses to commit - and the agent commits.
+	warn "no git identity set; commits will fail until there is one"
+	log "put yours in settings.local.env (gitignored):"
+	log "  GIT_USER_NAME=\"Your Name\""
+	log "  GIT_USER_EMAIL=you@example.com"
+fi
 if [ -n "$GIT_USER_NAME" ]; then
 	if [ "$(as_user git config --global --get user.name 2>/dev/null || true)" = "$GIT_USER_NAME" ]; then
 		skip "git user.name already set"
