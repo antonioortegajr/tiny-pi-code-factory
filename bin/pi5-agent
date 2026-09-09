@@ -35,6 +35,8 @@ BRANCH_PREFIX = os.environ.get("AGENT_BRANCH_PREFIX", "agent/")
 # cross-tool convention (opencode reads it too), so one file steers both agents.
 # Bounded, because context here is 8K and the tool results have to fit in it.
 AGENTS_MD_MAX = int(os.environ.get("AGENT_INSTRUCTIONS_MAX_CHARS", "3000"))
+# Reasoning models narrate before answering. Set AGENT_SHOW_THINKING=1 to keep it.
+SHOW_THINKING = os.environ.get("AGENT_SHOW_THINKING", "0") == "1"
 
 _tty = sys.stdout.isatty()
 DIM, BOLD, RED, GRN, YEL, BLU, RST = (
@@ -48,6 +50,31 @@ def warn(m): print(f"{YEL}!{RST} {m}", file=sys.stderr)
 def die(m, code=1):
     print(f"{RED}{BOLD}ERROR:{RST} {m}", file=sys.stderr)
     sys.exit(code)
+
+
+_THINK_TAGS = re.compile(r"<(think|thinking|reasoning)>.*?</\1>", re.S | re.I)
+# A labelled preamble ending at the first blank line, e.g. "Thinking Process: …".
+_THINK_LABEL = re.compile(
+    r"\A\s*(?:thinking process|thought process|reasoning|thinking|thought)\s*:.*?(?:\n\s*\n|\Z)",
+    re.S | re.I)
+
+
+def strip_thinking(text):
+    """Remove a reasoning model's narration.
+
+    Stripped from the conversation history too, not just the display: on an 8K
+    context, several turns of narration crowd out the tool results the model
+    actually needs.
+    """
+    if not text or SHOW_THINKING:
+        return text
+    cleaned = _THINK_TAGS.sub("", text)
+    cleaned = _THINK_LABEL.sub("", cleaned)
+    # An unclosed <think> means the answer never arrived; keep the text rather
+    # than return nothing.
+    if "<think" in cleaned.lower() and "</think" not in cleaned.lower():
+        return text.strip()
+    return cleaned.strip() or text.strip()
 
 
 def run(cmd, cwd, timeout=120):
@@ -306,7 +333,15 @@ def chat(messages, tools):
     payload = {"messages": messages, "tools": tools, "temperature": 0.2}
     if MODEL:
         payload["model"] = MODEL
-    return post("/chat/completions", payload)["choices"][0]["message"]
+    if not SHOW_THINKING:
+        # Ollama honours this for reasoning models; anything that does not
+        # understand it ignores an unknown field, and the stripping below still
+        # cleans up whatever arrives.
+        payload["think"] = False
+    msg = post("/chat/completions", payload)["choices"][0]["message"]
+    if msg.get("content"):
+        msg["content"] = strip_thinking(msg["content"])
+    return msg
 
 
 def _plain(messages, timeout=300):
@@ -315,7 +350,13 @@ def _plain(messages, timeout=300):
     payload = {"messages": messages, "temperature": 0.2, "max_tokens": 120}
     if MODEL:
         payload["model"] = MODEL
-    return post("/chat/completions", payload, timeout=timeout)
+    if not SHOW_THINKING:
+        payload["think"] = False
+    data = post("/chat/completions", payload, timeout=timeout)
+    msg = data["choices"][0]["message"]
+    if msg.get("content"):
+        msg["content"] = strip_thinking(msg["content"])
+    return data
 
 
 def selftest():
@@ -398,6 +439,8 @@ How to work:
    about.
 
 Rules:
+- Do not narrate your reasoning. No "Thinking Process:", no commentary on what
+  you are about to do. Call a tool, or give the answer.
 - One tool call at a time. Read each result before the next step.
 - Do not close issues or merge anything. A human reviews your work.
 - If the issue is unclear or too large, say so and stop rather than guessing.

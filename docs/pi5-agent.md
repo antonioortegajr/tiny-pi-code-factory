@@ -101,8 +101,28 @@ default branch.
 | `AGENT_MAX_TURNS` | `20` | tool-call rounds before giving up |
 | `AGENT_MAX_TOOL_CHARS` | `4000` | truncation per tool result |
 | `AGENT_INSTRUCTIONS_MAX_CHARS` | `3000` | truncation for AGENTS.md |
+| `AGENT_SHOW_THINKING` | `0` | `1` keeps a reasoning model's narration |
 | `AGENT_BRANCH_PREFIX` | `agent/` | branch namespace |
 | `AGENT_LABEL` | `agent:queued` | queue trigger |
+
+## Reasoning models
+
+Qwen3.5 and similar narrate before answering — `<think>…</think>` blocks, or a
+`Thinking Process:` preamble. Three things suppress it:
+
+1. `"think": false` on the request, which Ollama honours for models that
+   support it and anything else ignores.
+2. A system prompt rule against narrating.
+3. Stripping whatever still arrives, by pattern.
+
+The stripping applies to the **conversation history**, not just the display.
+That is the part that matters: on an 8K context, several turns of narration
+crowd out the tool results the model needs to do the job. An unclosed `<think>`
+is left alone, since that means the answer never arrived and hiding it would
+just look like a hang.
+
+`AGENT_SHOW_THINKING=1` keeps it, which is occasionally useful for working out
+why the model chose a tool.
 
 ## Limits worth knowing before you rely on it
 
