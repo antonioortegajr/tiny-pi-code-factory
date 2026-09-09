@@ -599,6 +599,8 @@ def agent_loop(prompt, tools, include_write):
 
     messages = [{"role": "system", "content": system},
                 {"role": "user", "content": prompt}]
+    used_a_tool = False
+    nudges = 0
 
     for turn in range(1, MAX_TURNS + 1):
         msg = chat(messages, specs if mode != "text" else None)
@@ -621,6 +623,7 @@ def agent_loop(prompt, tools, include_write):
                     continue
 
         if mode == "native" and calls:
+            used_a_tool = True
             messages.append(msg)
             for call in calls:
                 fname = call["function"]["name"]
@@ -638,12 +641,26 @@ def agent_loop(prompt, tools, include_write):
         if mode == "text":
             parsed = parse_text_call(content)
             if parsed:
+                used_a_tool = True
                 fname, fargs = parsed
                 result = dispatch(tools, fname, fargs, turn, mode)
                 messages.append({"role": "assistant", "content": content})
                 # No role:"tool" in this mode - the result comes back as user text.
                 messages.append({"role": "user", "content": f"TOOL RESULT:\n{result}"})
                 continue
+
+        # A small model often answers "I will add that line" without calling
+        # anything. Treating that as a finished job is how an issue gets marked
+        # failed with no branch and no explanation.
+        if include_write and not used_a_tool and nudges < 2:
+            nudges += 1
+            print(f"{DIM}  no tool used yet; asking it to act (nudge {nudges}/2){RST}")
+            messages.append({"role": "assistant", "content": content})
+            messages.append({"role": "user", "content":
+                "You have not changed anything yet. Do not describe what you "
+                "would do - do it. Reply with a tool call now, starting with "
+                "git_branch if you are about to edit a file."})
+            continue
 
         print("\n" + (content or "(no answer)").strip())
         break
@@ -721,6 +738,13 @@ def queue(args):
                   f"relevant code before changing anything. Use branch name issue-{num}.")
         try:
             agent_loop(prompt, tools, True)
+        except KeyboardInterrupt:
+            # Interrupted is not failed. Leave the label alone so a rerun picks
+            # this issue up again rather than needing it relabelled by hand.
+            print()
+            warn(f"interrupted during #{num}; its label is unchanged")
+            probe._git("switch", default)
+            return 130
         except SystemExit:
             raise
         except Exception as exc:                      # noqa: BLE001
@@ -737,10 +761,13 @@ def queue(args):
         else:
             tools._gh("issue", "edit", str(num),
                       "--add-label", LABEL_FAILED, "--remove-label", LABEL)
+            reason = ("It answered in prose without ever calling a tool"
+                      if not tools.branch else
+                      "It started work on a branch but opened no pull request")
             tools._gh("issue", "comment", str(num),
-                      "--body", "The local agent could not complete this one. "
-                                "It may be too large or too vague for a small model; "
-                                "no pull request was opened.")
+                      "--body", f"The local agent did not finish this one. {reason}. "
+                                "No pull request was opened.\n\n"
+                                "Re-label `agent:queued` to try again.")
             warn(f"#{num} produced no PR")
             failed += 1
 
