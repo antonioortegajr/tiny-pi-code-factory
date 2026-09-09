@@ -376,6 +376,25 @@ def post(path, payload, timeout=600):
         die(f"cannot reach {BASE_URL} ({e.reason})\n  check:  systemctl status lmstudio-server")
 
 
+_RESOLVED_MODEL = None
+
+
+def resolve_model():
+    """The model id to send. Ollama requires one on every request, unlike
+    servers that infer it from whatever is loaded, so ask the endpoint once and
+    cache the answer."""
+    global _RESOLVED_MODEL
+    if MODEL:
+        return MODEL
+    if _RESOLVED_MODEL is None:
+        _RESOLVED_MODEL = loaded_model() or ""
+        if not _RESOLVED_MODEL:
+            die("no model available at " + BASE_URL + "\n"
+                "  ollama list    then    ollama pull qwen3.5:4b-q4_K_M\n"
+                "  or pin one with AGENT_MODEL_ID=<id>")
+    return _RESOLVED_MODEL
+
+
 def loaded_model():
     try:
         with urllib.request.urlopen(f"{BASE_URL}/models", timeout=10) as r:
@@ -387,11 +406,9 @@ def loaded_model():
 
 
 def chat(messages, tools=None):
-    payload = {"messages": messages, "temperature": 0.2}
+    payload = {"messages": messages, "temperature": 0.2, "model": resolve_model()}
     if tools:
         payload["tools"] = tools
-    if MODEL:
-        payload["model"] = MODEL
     if not SHOW_THINKING:
         # Ollama honours this for reasoning models; anything that does not
         # understand it ignores an unknown field, and the stripping below still
@@ -406,9 +423,8 @@ def chat(messages, tools=None):
 def _plain(messages, timeout=300):
     """A completion with no tools, so a tool-parsing bug cannot mask a model
     that is simply not generating."""
-    payload = {"messages": messages, "temperature": 0.2, "max_tokens": 120}
-    if MODEL:
-        payload["model"] = MODEL
+    payload = {"messages": messages, "temperature": 0.2, "max_tokens": 120,
+               "model": resolve_model()}
     if not SHOW_THINKING:
         payload["think"] = False
     data = post("/chat/completions", payload, timeout=timeout)
