@@ -88,11 +88,23 @@ load_detected() {
 		# shellcheck disable=SC1091
 		. "$STATE_DIR/detected.env"
 	fi
+	# Every field detected.env can carry needs a default here, or a script run
+	# before preflight dies on set -u rather than degrading.
 	: "${OS_CODENAME:=$(os_codename)}"
 	: "${OS_PRETTY:=$OS_CODENAME}"
 	: "${COMPOSITOR:=$(detect_compositor)}"
 	: "${MODEL:=$(pi_model)}"
-	export OS_CODENAME OS_PRETTY COMPOSITOR MODEL
+	: "${ARCH:=$(uname -m)}"
+	: "${KERNEL:=$(uname -r)}"
+	: "${HAS_DESKTOP:=0}"
+	: "${ROOT_SRC:=$(findmnt -no SOURCE / 2>/dev/null || echo unknown)}"
+	: "${ROOT_DISK:=}"
+	: "${BOOT_SRC:=$(findmnt -no SOURCE /boot/firmware 2>/dev/null || echo none)}"
+	: "${HAS_NVME:=0}"
+	: "${EXTRA_DISK:=}"
+	: "${EXTRA_DISK_TRAN:=}"
+	export OS_CODENAME OS_PRETTY COMPOSITOR MODEL ARCH KERNEL HAS_DESKTOP \
+	       ROOT_SRC ROOT_DISK BOOT_SRC HAS_NVME EXTRA_DISK EXTRA_DISK_TRAN
 }
 
 # Guard for scripts that only make sense on the Pi itself.
