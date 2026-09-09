@@ -562,7 +562,7 @@ def repo_instructions(workdir):
     return None, "", False
 
 
-def dispatch(tools, name, args, turn, mode):
+def dispatch(tools, name, args, turn, mode, seen=None):
     """Run one tool call and return its result string."""
     if args is None:
         return ("error: ARGS was not valid JSON. Reply with exactly:\n"
@@ -573,6 +573,15 @@ def dispatch(tools, name, args, turn, mode):
     shown = ", ".join(
         f"{k}={(v[:40] + '…') if isinstance(v, str) and len(v) > 40 else v!r}"
         for k, v in args.items())
+    if seen is not None:
+        sig = f"{name}:{json.dumps(args, sort_keys=True)}"
+        seen[sig] = seen.get(sig, 0) + 1
+        if seen[sig] >= 3:
+            print(f"{DIM}  [{turn}] {name}(…) repeated{RST}")
+            return (f"error: you have called {name} with these exact arguments "
+                    f"{seen[sig]} times. The result will not change. Use a "
+                    f"different tool, or give your final answer.")
+
     print(f"{DIM}  [{turn}] {name}({shown}){RST}")
     try:
         result = fn(**args)
@@ -602,6 +611,9 @@ def agent_loop(prompt, tools, include_write):
                 {"role": "user", "content": prompt}]
     used_a_tool = False
     nudges = 0
+    # Small models get stuck re-reading the same file. The turn limit bounds it,
+    # but 20 identical calls is half an hour of this board achieving nothing.
+    seen_calls = {}
 
     for turn in range(1, MAX_TURNS + 1):
         msg = chat(messages, specs if mode != "text" else None)
@@ -623,6 +635,10 @@ def agent_loop(prompt, tools, include_write):
                 if not parse_text_call(content):
                     continue
 
+        if max(seen_calls.values(), default=0) >= 5:
+            warn("the model is repeating the same call; stopping early")
+            break
+
         if mode == "native" and calls:
             used_a_tool = True
             messages.append(msg)
@@ -635,7 +651,7 @@ def agent_loop(prompt, tools, include_write):
                 messages.append({
                     "role": "tool",
                     "tool_call_id": call.get("id", fname),
-                    "content": dispatch(tools, fname, fargs, turn, mode),
+                    "content": dispatch(tools, fname, fargs, turn, mode, seen_calls),
                 })
             continue
 
@@ -644,7 +660,7 @@ def agent_loop(prompt, tools, include_write):
             if parsed:
                 used_a_tool = True
                 fname, fargs = parsed
-                result = dispatch(tools, fname, fargs, turn, mode)
+                result = dispatch(tools, fname, fargs, turn, mode, seen_calls)
                 messages.append({"role": "assistant", "content": content})
                 # No role:"tool" in this mode - the result comes back as user text.
                 messages.append({"role": "user", "content": f"TOOL RESULT:\n{result}"})

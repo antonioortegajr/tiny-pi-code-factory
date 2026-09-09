@@ -170,6 +170,34 @@ just look like a hang.
 `AGENT_SHOW_THINKING=1` keeps it, which is occasionally useful for working out
 why the model chose a tool.
 
+## Can it loop forever?
+
+No. Every loop is bounded:
+
+| Loop | Bound |
+| --- | --- |
+| tool-call turns | `AGENT_MAX_TURNS`, default 20 |
+| nudges when no tool is used | 2 |
+| issues per repo per run | 20 |
+| repeated identical tool call | warned at 3, run stops at 5 |
+| every `git`/`gh` call | 120s timeout |
+| an `opencode` handoff | 3600s timeout |
+| a model request | 600s timeout |
+| the queue timer | `TimeoutStartSec=3600`, and systemd will not start a second run while one is going |
+
+The repeat check matters more than the turn limit in practice. A small model
+that gets stuck re-reading one file would otherwise spend all twenty turns doing
+it — half an hour of this board achieving nothing. It is told the result will
+not change, and the run ends if it keeps going.
+
+The only unbounded loop in the repo is the Telegram bridge's polling loop, which
+is a daemon and meant to be.
+
+**One hazard that is not a loop but is worth knowing:** the agent can work
+issues in `my-pi5-setup` itself, which means editing its own code. Nothing stops
+that, and it is sometimes what you want — but review those diffs with more care
+than most.
+
 ## Limits worth knowing before you rely on it
 
 - **`write_file` replaces whole files.** No patches. Reliable for a small model,
