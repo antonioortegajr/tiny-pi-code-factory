@@ -44,7 +44,7 @@ else
 	fix "make storage      # then: make ssd-state"
 fi
 
-boot_free="$(df -BG --output=avail / 2>/dev/null | tail -n1 | tr -dc '0-9')"
+boot_free="$( { df -BG --output=avail / 2>/dev/null || true; } | tail -n1 | tr -dc '0-9' )"
 [ -n "$boot_free" ] && [ "$boot_free" -lt 3 ] 2>/dev/null \
 	&& note "only ${boot_free} GB free on the boot drive" \
 	|| true
@@ -53,34 +53,23 @@ step "Model server"
 
 BACKEND=""
 ENDPOINT=""
-INSTALLED=""
-if systemctl is-active --quiet lmstudio-server 2>/dev/null; then
-	ok "lmstudio-server is running"
-	BACKEND="lmstudio"; ENDPOINT="http://127.0.0.1:${LMS_PORT:-1234}/v1"
-elif [ -x "$TARGET_HOME/.lmstudio/bin/lms" ]; then
-	INSTALLED="lmstudio"
-	bad "LM Studio is installed but lmstudio-server is not running"
-	fix "journalctl -u lmstudio-server -n 30 --no-pager"
-	fix "if it will not start, switch backend:  make llm LLM_APP=ollama"
-fi
-
 if systemctl is-active --quiet ollama 2>/dev/null; then
 	ok "ollama is running"
-	[ -z "$BACKEND" ] && { BACKEND="ollama"; ENDPOINT="http://127.0.0.1:11434/v1"; }
+	BACKEND="ollama"; ENDPOINT="http://127.0.0.1:11434/v1"
 elif has_cmd ollama; then
-	INSTALLED="${INSTALLED:+$INSTALLED }ollama"
 	bad "ollama is installed but not running"
-	fix "sudo systemctl status ollama"
+	fix "sudo systemctl status ollama    journalctl -u ollama -n 30 --no-pager"
+else
+	bad "no model server installed"
+	fix "make llm"
 fi
 
-if [ -z "$BACKEND" ] && [ -z "$INSTALLED" ]; then
-	bad "no model server installed"
-	fix "make llm                    # LM Studio"
-	fix "make llm LLM_APP=ollama     # Ollama, fewer moving parts on Lite"
-elif [ -z "$BACKEND" ]; then
-	# Installed but dead is a different problem from absent, and saying
-	# "not installed" underneath "is installed" just reads as a broken check.
-	log "installed but not running: $INSTALLED"
+# A leftover unit from the LM Studio era fails on every boot and clutters the
+# journal for no reason.
+if systemctl list-unit-files lmstudio-server.service >/dev/null 2>&1; then
+	note "lmstudio-server.service is still installed but no longer used"
+	fix "sudo systemctl disable --now lmstudio-server"
+	fix "sudo rm /etc/systemd/system/lmstudio-server.service && sudo systemctl daemon-reload"
 fi
 
 step "Model"
@@ -93,10 +82,7 @@ if [ -n "$ENDPOINT" ]; then
 		printf '        %s\n' $models
 	else
 		bad "no model loaded at $ENDPOINT"
-		case "$BACKEND" in
-			lmstudio) fix "lms ls    then    lms load <model> --context-length ${LMS_CONTEXT:-8192}" ;;
-			ollama)   fix "ollama pull ${OLLAMA_MODEL:-hermes3:3b}" ;;
-		esac
+		fix "ollama pull ${OLLAMA_MODEL:-qwen3.5:4b-q4_K_M}"
 	fi
 fi
 
@@ -112,17 +98,14 @@ else
 	else
 		bad "the local AI check did not pass"
 		fix "make llm-test          # staged output: endpoint, model, inference, tools"
-		if [ "$BACKEND" != "ollama" ]; then
-			fix "known-good fallback:  make app APP=ollama && pi5-agent --backend ollama --selftest"
-			fix "Hermes 3 is trained for tool use and Ollama has parsed its format for years."
-		fi
+		fix "fallback model:  ollama pull hermes3:3b    (trained for tool use)"
 	fi
 fi
 
 step "Context budget"
 # Agents differ enormously in how much context they assume. Saying so here beats
 # discovering it when one silently truncates its own instructions.
-ctx="${LMS_CONTEXT:-8192}"
+ctx="${OLLAMA_CONTEXT:-8192}"
 log "configured context: $ctx tokens"
 log "pi5-agent and opencode are sized for this; both keep a short tool menu"
 if [ -n "$ram_total" ]; then

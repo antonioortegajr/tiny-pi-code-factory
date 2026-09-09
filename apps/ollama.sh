@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Ollama - local model runner, the alternative to apps/lm-studio.sh.
+# Ollama - the local model runner.
 #
 # Worth choosing when tool calling matters. Ollama's parser for the Hermes
 # <tool_call> format is long established, where support for a newer model's

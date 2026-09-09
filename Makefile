@@ -4,8 +4,7 @@
 #   make dark         re-assert the dark theme (safe to run any time)
 #   DRY_RUN=1 make …  print every change without making it
 
-SHELL   := /bin/bash
-LLM_APP ?= lm-studio
+SHELL := /bin/bash
 S     := ./scripts
 ARGS  ?=
 
@@ -27,7 +26,7 @@ all: preflight network base storage ssd-state dark dev harden apps
 preflight:
 	@$(S)/00-preflight.sh
 
-## llm              fast path to a working local model (LLM_APP=ollama to switch)
+## llm              fast path to a working local model, skipping the apt upgrade
 # The model server cannot genuinely go first: it needs the network, curl, and the SSD
 # mounted, or a multi-gigabyte model lands on the USB boot drive. This is the
 # shortest honest route - everything it depends on, and nothing else.
@@ -36,7 +35,7 @@ llm: preflight
 	@SKIP_UPGRADE=1 $(S)/10-base.sh
 	@$(S)/20-storage.sh
 	@$(S)/25-ssd-state.sh
-	@LLM_FAST=1 $(S)/60-apps.sh $(LLM_APP)
+	@LLM_FAST=1 $(S)/60-apps.sh ollama
 	@echo
 	@echo "Server is up. Next:  lms get --help   then   lms load <model>"
 	@echo "Finish the rest whenever:  make all"
@@ -101,11 +100,11 @@ dev: preflight
 harden: preflight
 	@$(S)/50-harden.sh
 
-## apps             install everything listed in $$APPS (lm-studio, open-webui, …)
+## apps             install everything listed in $$APPS (ollama, open-webui, …)
 apps: preflight
 	@$(S)/60-apps.sh
 
-## app APP=name     install one app, e.g. make app APP=lm-studio
+## app APP=name     install one app, e.g. make app APP=ollama
 app: preflight
 	@test -n "$(APP)" || { echo "usage: make app APP=<name>"; exit 1; }
 	@$(S)/60-apps.sh "$(APP)"

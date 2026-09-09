@@ -8,10 +8,9 @@ by default. Trixie (labwc) and Bookworm (wayfire) are both handled; the scripts
 detect which one they are on. Boot is from USB, with an SSD on a HAT as extra
 storage.
 
-> **Not yet run on real hardware.** Every script is syntax-checked and dry-run
-> tested, but nothing here has executed on a Pi. Start with `DRY_RUN=1 make all`,
-> and expect the LM Studio CLI flags and the panel colour keys to be the first
-> things that need correcting. `make doctor` reports what actually works.
+> **Run on Raspberry Pi OS Lite, 2026-06-18.** Start with `DRY_RUN=1 make all`,
+> then `make doctor` for what actually works. LM Studio was tried and dropped —
+> its installer would not run on a Lite image — so Ollama is the model server.
 
 ## Use it
 
@@ -135,16 +134,15 @@ all "dark theme" can mean anyway.
 
 **The upside is RAM.** The desktop costs roughly 0.5–1 GB, and on an 8 GB Pi with
 no GPU to offload to, that is memory the model could be using. Every part of
-what this repo builds is headless already: the LM Studio server, Open WebUI
+what this repo builds is headless already: the Ollama server, Open WebUI
 browsed from another machine, and `pi5-agent` over SSH. None of it needs a
 screen attached to the Pi.
 
 **Two things to watch:**
 
-- LM Studio's installer is the one component not verified on a minimal image. If
-  it pulls in a shared library the desktop image happened to already have, the
-  install will say so — `apps/lm-studio.sh` reports the failure rather than
-  carrying on.
+- LM Studio was the one component that did not survive a minimal image: its
+  installer failed on Lite, which is why Ollama is now the only model server.
+  Ollama is a static binary plus a systemd unit, with far less to go wrong.
 - Lite has less preinstalled in general. `bootstrap.sh` installs `git` and `curl`
   if they are missing, and `BASE_PACKAGES` covers the rest.
 
@@ -169,7 +167,7 @@ screen attached to the Pi.
 | `make ssd-state` | keep Docker/model/project data on the SSD, not the boot drive |
 | `make dev` | git identity, SSH key, optional uv / node / docker |
 | `make apps` | install everything in `$APPS` (see below) |
-| `make app APP=lm-studio` | install a single app |
+| `make app APP=ollama` | install a single app |
 | `make harden` | key-only SSH, ufw, unattended-upgrades |
 | `make capture` | record this Pi's packages and config into `captured/` |
 | `make capture-theme` | snapshot the live theme files into `config/captured/` |
@@ -185,7 +183,7 @@ screen attached to the Pi.
 Third-party software is à la carte. `settings.env` lists what you want:
 
 ```sh
-APPS="lm-studio gh opencode open-webui"
+APPS="ollama gh opencode open-webui"
 ```
 
 Each name maps to `apps/<name>.sh`, which defines one idempotent `app_install()`.
@@ -200,7 +198,7 @@ make llm
 
 The model server cannot genuinely go first — it needs the network, `curl`, and the SSD
 mounted, or a multi-gigabyte model lands on the USB boot drive. So `make llm` is
-the shortest honest route: everything LM Studio depends on and nothing else, with
+the shortest honest route: everything Ollama depends on and nothing else, with
 the 20-minute `apt full-upgrade` skipped. Model running in a few minutes; run
 `make all` afterwards for the rest.
 
@@ -215,22 +213,18 @@ and idempotent. Use the model to ask about the setup, not to perform it.
 
 ### Local LLMs on a Pi 5
 
-Two interchangeable backends. Both expose an OpenAI-compatible endpoint, so Open
-WebUI and `pi5-agent` work against either:
+**Ollama** is the model server. LM Studio was tried and dropped: its installer
+would not run on a Lite image, and one runner for one job beats two.
 
 ```sh
-APPS="lm-studio gh opencode open-webui"   # default
-APPS="ollama gh opencode open-webui"      # Ollama instead
-make llm LLM_APP=ollama            # fast path, either way
+make llm        # ollama + qwen3.5:4b-q4_K_M, skipping the slow apt upgrade
 ```
 
-### Ollama, and why you might prefer it
-
-**If tool calling matters, start here.** `pi5-agent` depends on the runtime
-turning the model's tool-call format into OpenAI-shaped `tool_calls`, and that
-parsing is the part that lags a model's release. Ollama's parser for the Hermes
-`<tool_call>` format has been in place for a long time, and Hermes 3 is trained
-for function calling.
+`pi5-agent` depends on the runtime turning the model's tool-call format into
+OpenAI-shaped `tool_calls`, and that parsing is the part that lags a model's
+release. Ollama's parser for the Hermes `<tool_call>` format has been in place
+for years, which is why `hermes3:3b` is the fallback when tool calling
+misbehaves.
 
 Default is **`qwen3.5:4b-q4_K_M`** — about 2.5 GB, and Qwen3.5 is built for
 agentic coding, which is what the issue queue asks of it.
@@ -244,54 +238,9 @@ make app APP=ollama
 pi5-agent --backend ollama --selftest
 ```
 
-If Gemma 4 fails `make llm-test` under LM Studio, this is the thing to try
-before concluding tool calling does not work.
+If `make llm-test` stage 4 fails, `hermes3:3b` is the thing to try before
+concluding tool calling does not work.
 
-### LM Studio
-
-Default stack is **headless LM Studio** plus Open WebUI:
-
-- **`lm-studio`** — installs the `lms` CLI via `lmstudio.ai/install.sh`, symlinks
-  the models directory onto the SSD, and runs the OpenAI-compatible server as
-  `lmstudio-server.service` with lingering enabled, so it comes back after a
-  reboot with nobody logged in. Endpoint: `http://127.0.0.1:1234/v1`. Local only
-  unless you set `LMS_EXPOSE=1` — there is no authentication on it.
-- **`ollama`** — the alternative runner. systemd service, models on the SSD,
-  endpoint on `127.0.0.1:11434`.
-- **`open-webui`** — the browser front end. Detects which model server is
-  installed and points at it (both, if both are); runs in Docker with `--network=host` and opens its
-  port in ufw. Docker installs on demand even if `INSTALL_DOCKER=0`.
-
-Then: `http://pi5.local:8080`, and the first account you create is the admin.
-
-**Default model: Gemma 4 E2B** —
-[`lmstudio-community/gemma-4-E2B-it-GGUF`](https://huggingface.co/lmstudio-community/gemma-4-E2B-it-GGUF).
-Downloaded and loaded automatically; override with `LMS_MODEL`.
-
-Gemma 4 comes in E2B, E4B, 26B-A4B and 31B. **E2B is the only one that fits an
-8 GB Pi** — there is no GPU to offload to, so the model sits in system RAM next
-to everything else.
-
-Its 256K context window is a trap on this hardware: the KV cache at that length
-costs more memory than the model does. The server loads at `LMS_CONTEXT`,
-default `8192`. Raise it only if you have watched the memory while doing so.
-
-```sh
-lms ls                  # what is downloaded
-lms ps                  # what is loaded
-lms get --help          # find something else
-```
-
-What to expect on a Pi 5, CPU-only, Q4 quantised — there is no usable GPU
-offload:
-
-| Model size | Speed |
-| --- | --- |
-| 1–3B | ~5–10 tok/s, comfortable |
-| 7–8B | ~2–3 tok/s, usable but slow |
-| larger | don't |
-
-More RAM raises the ceiling on model size, not the speed.
 
 ## Is the local AI working?
 
@@ -303,7 +252,7 @@ Four stages in dependency order, each printing what it saw:
 
 ```
 1. endpoint        reachable at http://127.0.0.1:1234/v1
-2. model           lmstudio-community/gemma-4-E2B-it-GGUF
+2. model           qwen3.5:4b-q4_K_M
 3. inference       asks a real question, prints the answer and tok/s
 4. tool calling    offers tools, checks tool_calls come back
 ```
@@ -589,7 +538,7 @@ at it, since those expose dozens of tools at once.
 Gemma 4 emits tool calls as trained special tokens (`<|tool_call|>`) and the
 runtime has to parse those into OpenAI-shaped `tool_calls`. That parsing lags
 model releases and has been reported broken elsewhere. `make llm-test` settles
-it in two seconds, and catches it regressing after an LM Studio update.
+it in two seconds, and catches it regressing after an Ollama update.
 
 ### Expectations
 
@@ -624,7 +573,7 @@ The OS lives on the USB drive and gets wiped. The SSD does not. So the rule is:
 | | Where | After a reflash |
 | --- | --- | --- |
 | Docker images + volumes | `/mnt/ssd/docker` | still there |
-| LM Studio models | `/mnt/ssd/lm-studio` | still there |
+| Ollama models | `/mnt/ssd/ollama` | still there |
 | Repos | `/mnt/ssd/GitHub`, bind-mounted to `~/GitHub` | still there |
 | Projects | `/mnt/ssd/projects`, bind-mounted to `~/projects` | still there |
 | SSH keys | `/mnt/ssd/ssh`, bind-mounted to `~/.ssh` | still there — no re-adding to GitHub |
@@ -644,7 +593,7 @@ Reinstalling them is cheap, so it is not worth fighting.
 
 Two details that matter:
 
-- Docker and the LM Studio server get `RequiresMountsFor=/mnt/ssd`. Without it they can start
+- Docker and Ollama get `RequiresMountsFor=/mnt/ssd`. Without it they can start
   before the SSD mounts, find their data directory missing, and silently
   recreate it on the boot drive.
 - If Docker already has images in `/var/lib/docker`, the script refuses to just

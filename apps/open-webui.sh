@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Open WebUI - browser front end for whichever local model server is installed.
 #
-# Runs with --network=host so the container reaches the model server on
-# 127.0.0.1 without that server having to listen on the LAN itself.
+# Runs with --network=host so the container reaches Ollama on 127.0.0.1 without
+# Ollama having to listen on the LAN itself.
 APP_DESCRIPTION="browser UI for the local model server"
 
 OPEN_WEBUI_IMAGE="${OPEN_WEBUI_IMAGE:-ghcr.io/open-webui/open-webui:main}"
@@ -12,19 +12,10 @@ app_install() {
 	need_sudo
 	ensure_docker
 
-	# Point at whichever model server is actually installed.
-	local backend_env=()
-	if [ -x "$TARGET_HOME/.lmstudio/bin/lms" ]; then
-		backend_env+=(-e "OPENAI_API_BASE_URL=http://127.0.0.1:${LMS_PORT:-1234}/v1"
-		              -e "OPENAI_API_KEY=lm-studio")
-		log "backend: LM Studio on port ${LMS_PORT:-1234}"
-	fi
 	if has_cmd ollama; then
-		backend_env+=(-e "OLLAMA_BASE_URL=http://127.0.0.1:11434")
 		log "backend: Ollama on port 11434"
-	fi
-	if [ ${#backend_env[@]} -eq 0 ]; then
-		warn "no model server installed; add lm-studio or ollama to APPS"
+	else
+		warn "ollama not installed; add it to APPS or the UI will have no models"
 	fi
 
 	# Group membership only takes effect on the next login, so right after
@@ -52,7 +43,7 @@ app_install() {
 			--network=host \
 			--restart always \
 			-e "PORT=$OPEN_WEBUI_PORT" \
-			"${backend_env[@]}" \
+			-e "OLLAMA_BASE_URL=http://127.0.0.1:11434" \
 			-v open-webui:/app/backend/data \
 			"$OPEN_WEBUI_IMAGE" >/dev/null || return 1
 		changed "started open-webui"

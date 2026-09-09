@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Make sure the Pi can actually reach the internet before anything tries to
-# download. Everything after this point - apt, LM Studio, docker - fails in a
+# download. Everything after this point - apt, ollama, docker - fails in a
 # confusing way without it, so fail here instead, with something actionable.
 #
 # Wi-Fi credentials belong in Raspberry Pi Imager, which bakes them into the

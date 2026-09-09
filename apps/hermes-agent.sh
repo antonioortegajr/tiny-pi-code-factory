@@ -70,8 +70,6 @@ app_install() {
 	local endpoint="" backend=""
 	if systemctl is-active --quiet ollama 2>/dev/null; then
 		backend="Ollama"; endpoint="http://127.0.0.1:11434/v1"
-	elif systemctl is-active --quiet lmstudio-server 2>/dev/null; then
-		backend="LM Studio"; endpoint="http://127.0.0.1:${LMS_PORT:-1234}/v1"
 	fi
 
 	log ""
@@ -82,7 +80,7 @@ app_install() {
 		log "docs: https://hermes-agent.nousresearch.com/docs/user-guide/local-models"
 	else
 		warn "no local model server is running"
-		log "start one first:  make llm LLM_APP=ollama"
+		log "start one first:  make llm"
 		log "then:  hermes setup"
 	fi
 

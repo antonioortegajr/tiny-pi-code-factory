@@ -5,7 +5,7 @@
 # What survives a reflash after this runs:
 #   - Docker images and volumes (a container carries its own userland, so it does
 #     not care that the host OS changed underneath it)
-#   - LM Studio models
+#   - Ollama models
 #   - whatever you bind-mount from the SSD into your home directory
 #
 # What does not, and does not need to: apt packages and binaries. Those are
@@ -45,7 +45,7 @@ need_sudo
 log "using $SSD_MOUNT_POINT"
 
 # --- directories -----------------------------------------------------------
-for d in ${SSD_STATE_DIRS:-docker lm-studio projects}; do
+for d in ${SSD_STATE_DIRS:-docker ollama projects}; do
 	ensure_dir "$SSD_MOUNT_POINT/$d"
 done
 
@@ -90,10 +90,9 @@ elif [ "$docker_root_changed" = "1" ]; then
 fi
 
 # --- Start-up ordering -----------------------------------------------------
-# Without this, docker and the LM Studio server can start before the SSD is
-# mounted, find their data directory missing, and quietly recreate it on the
-# boot drive.
-for unit in docker lmstudio-server ollama; do
+# Without this, docker and ollama can start before the SSD is mounted, find
+# their data directory missing, and quietly recreate it on the boot drive.
+for unit in docker ollama; do
 	systemctl list-unit-files "$unit.service" >/dev/null 2>&1 || continue
 	write_file "/etc/systemd/system/$unit.service.d/15-ssd-mount.conf" <<UNIT
 # Managed by my-pi5-setup (scripts/25-ssd-state.sh)

@@ -46,7 +46,7 @@ app_install() {
 		printf 'GITHUB_DIR=%s\n' "$GITHUB_DIR"
 		printf 'TELEGRAM_REPOS=%s\n' "${TELEGRAM_REPOS:-}"
 		printf 'TELEGRAM_PASSPHRASE=%s\n' "${TELEGRAM_PASSPHRASE:-}"
-		printf 'AGENT_BASE_URL=%s\n' "${AGENT_BASE_URL:-http://127.0.0.1:${LMS_PORT:-1234}/v1}"
+		printf 'AGENT_BASE_URL=%s\n' "${AGENT_BASE_URL:-http://127.0.0.1:11434/v1}"
 	} | write_file "$envfile" 0600
 
 	write_file /etc/systemd/system/pi5-telegram.service <<UNIT

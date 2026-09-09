@@ -2,12 +2,10 @@
 """Work a GitHub issue with the local model. No MCP, no cloud, no pip deps.
 
 Single self-contained file - drop it into any repo's agent harness. It talks to
-whichever local model server is running (LM Studio on 1234, Ollama on 11434 -
-both speak the OpenAI-compatible shape) and uses the `gh` and `git` CLIs as its
-tool layer.
+Ollama's OpenAI-compatible endpoint on localhost, and uses the `gh` and `git`
+CLIs as its tool layer.
 
   pi5-agent --selftest              can the model call tools at all?
-  pi5-agent --backend ollama ...    talk to Ollama instead of LM Studio
   pi5-agent --queue --allow-write   work every issue labelled agent:queued
   pi5-agent --issue 12              read issue 12, branch, work it, open a draft PR
   pi5-agent "summarise open issues" read-only question
@@ -26,12 +24,10 @@ import sys
 import urllib.error
 import urllib.request
 
-# Works against either backend: LM Studio on 1234, Ollama on 11434. Both speak
-# the OpenAI-compatible shape, so nothing else in here has to care which.
-BASE_URL = (os.environ.get("AGENT_BASE_URL")
-            or os.environ.get("LMS_BASE_URL")
-            or "http://127.0.0.1:1234/v1")
-MODEL = os.environ.get("AGENT_MODEL_ID") or os.environ.get("LMS_MODEL_ID", "")
+# Ollama's OpenAI-compatible endpoint. Override with AGENT_BASE_URL for anything
+# else that speaks the same shape.
+BASE_URL = os.environ.get("AGENT_BASE_URL", "http://127.0.0.1:11434/v1")
+MODEL = os.environ.get("AGENT_MODEL_ID", "")
 MAX_TURNS = int(os.environ.get("AGENT_MAX_TURNS", "20"))
 MAX_TOOL_CHARS = int(os.environ.get("AGENT_MAX_TOOL_CHARS", "4000"))
 BRANCH_PREFIX = os.environ.get("AGENT_BRANCH_PREFIX", "agent/")
@@ -332,8 +328,7 @@ def selftest():
     model = loaded_model()
     if not model:
         print(f"   {RED}FAIL{RST} no model loaded")
-        print("\n   LM Studio:  lms ps    then    lms load <model>")
-        print("   Ollama:     ollama list    then    ollama pull hermes3:3b")
+        print("\n   ollama list    then    ollama pull qwen3.5:4b-q4_K_M")
         return 1
     print(f"   {GRN}ok{RST}  reachable")
 
@@ -590,17 +585,9 @@ def main():
                     help="permit branching, editing, committing and opening a draft PR")
     ap.add_argument("--yes", action="store_true", help="skip confirmation for PRs and comments")
     ap.add_argument("--force", action="store_true", help="proceed even with a dirty tree")
-    ap.add_argument("--backend", choices=["lmstudio", "ollama"],
-                    help="shorthand for the endpoint port")
     ap.add_argument("--queue", action="store_true",
                     help=f"work every open issue labelled '{LABEL}'")
     args = ap.parse_args()
-
-    global BASE_URL
-    if args.backend == "ollama":
-        BASE_URL = "http://127.0.0.1:11434/v1"
-    elif args.backend == "lmstudio":
-        BASE_URL = "http://127.0.0.1:1234/v1"
 
     if args.selftest:
         sys.exit(selftest())

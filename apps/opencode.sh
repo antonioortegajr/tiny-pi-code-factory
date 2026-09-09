@@ -39,13 +39,11 @@ app_install() {
 	local provider="" base_url="" pretty=""
 	if systemctl is-active --quiet ollama 2>/dev/null; then
 		provider="ollama"; base_url="http://127.0.0.1:11434/v1"; pretty="Ollama (local)"
-	elif systemctl is-active --quiet lmstudio-server 2>/dev/null; then
-		provider="lmstudio"; base_url="http://127.0.0.1:${LMS_PORT:-1234}/v1"; pretty="LM Studio (local)"
 	fi
 
 	if [ -z "$provider" ]; then
 		warn "no local model server running; leaving opencode unconfigured"
-		log "start one first:  make llm LLM_APP=ollama    then rerun this"
+		log "start one first:  make llm    then rerun this"
 		return 0
 	fi
 

@@ -2,7 +2,7 @@
 # Install the apps listed in $APPS, one file per app under apps/.
 #
 #   make apps              everything in $APPS
-#   make app APP=lm-studio just one, whether or not it is in $APPS
+#   make app APP=ollama    just one, whether or not it is in $APPS
 #
 # Each apps/<name>.sh defines app_install(). It is called from an || list, so a
 # failing app is reported and the rest still run.

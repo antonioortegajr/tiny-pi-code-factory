@@ -96,7 +96,7 @@ default branch.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `AGENT_BASE_URL` | `http://127.0.0.1:1234/v1` | endpoint; `--backend ollama` sets 11434 |
+| `AGENT_BASE_URL` | `http://127.0.0.1:11434/v1` | Ollama's OpenAI-compatible endpoint |
 | `AGENT_MODEL_ID` | *(whatever is loaded)* | pin a specific model |
 | `AGENT_MAX_TURNS` | `20` | tool-call rounds before giving up |
 | `AGENT_MAX_TOOL_CHARS` | `4000` | truncation per tool result |
