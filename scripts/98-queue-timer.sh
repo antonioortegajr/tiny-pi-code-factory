@@ -48,6 +48,7 @@ env_files="/etc/my-pi5-setup/queue.env"
 	printf 'QUEUE_REPOS=%s\n' "${QUEUE_REPOS:-}"
 	printf 'QUEUE_DISCOVER=%s\n' "${QUEUE_DISCOVER:-0}"
 	printf 'QUEUE_OWNER=%s\n' "${QUEUE_OWNER:-}"
+	printf 'QUEUE_TOPIC=%s\n' "${QUEUE_TOPIC:-}"
 	printf 'AGENT_LABEL=%s\n' "${AGENT_LABEL:-agent:queued}"
 	printf 'AGENT_BASE_URL=%s\n' "${AGENT_BASE_URL:-http://127.0.0.1:11434/v1}"
 } | write_file "$env_files" 0644
@@ -98,7 +99,13 @@ fi
 
 log ""
 if [ "${QUEUE_DISCOVER:-0}" = "1" ]; then
-	log "discovery on: repos with labelled issues will be cloned into $GITHUB_DIR"
+	if [ -n "${QUEUE_TOPIC:-}" ]; then
+		log "discovery on: repos with the '$QUEUE_TOPIC' topic and a labelled issue"
+		log "  add that topic on GitHub to opt a repo in; remove it to opt out"
+	else
+		warn "discovery on with no QUEUE_TOPIC: every repo you own is in scope"
+		log "  set QUEUE_TOPIC=pi-agent to opt repos in deliberately"
+	fi
 else
 	log "discovery off: only repos already cloned into $GITHUB_DIR are checked"
 	log "  set QUEUE_DISCOVER=1 to have it find and clone the others"

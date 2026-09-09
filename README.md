@@ -365,14 +365,21 @@ invisible. Turn on discovery and it will find and clone them:
 
 ```sh
 QUEUE_DISCOVER=1
-QUEUE_OWNER=antonioortegajr    # optional; defaults to the gh user
+QUEUE_TOPIC=pi-agent           # opt repos in, on GitHub
 ```
 
-It asks GitHub which of your repos have a labelled open issue, clones any that
-are missing (shallow, 50 commits), then works them. `QUEUE_REPOS` still applies
-if set — discovery finds repos, it does not widen scope. Each repo is fetched
-and fast-forwarded before work starts, so the agent branches off current `main`
-rather than whatever was on disk last time.
+**Opting a repo in is a GitHub topic, not a config change here.** Add the topic
+`pi-agent` to a repository and the Pi will start working its labelled issues;
+remove the topic and it stops. Nothing to edit on the Pi, and it is a query
+rather than a judgement — no model decides what gets cloned.
+
+Discovery asks which of your repos have an open labelled issue, intersects that
+with the topic, shallow-clones anything missing, then works it. `QUEUE_REPOS`
+narrows further if set. Each repo is fetched and fast-forwarded first, so the
+agent branches off current `main` rather than whatever was on disk last time.
+
+Leaving `QUEUE_TOPIC` empty puts **every repo you own** in scope, which is
+rarely what you want running unattended — the installer warns if you do.
 
 A systemd timer rather than cron, for three reasons: it will not start a second
 run while one is still going — which matters when a single issue takes ten

@@ -15,6 +15,10 @@ QUEUE_REPOS="${QUEUE_REPOS:-}"
 # have already chosen to put on this machine.
 QUEUE_DISCOVER="${QUEUE_DISCOVER:-0}"
 QUEUE_OWNER="${QUEUE_OWNER:-}"
+# Repo topic that opts a repository in. Declared on GitHub rather than in a file
+# here, so a repo joins or leaves by editing its topics. Empty means every repo
+# the owner has, which is broader than most people want left running.
+QUEUE_TOPIC="${QUEUE_TOPIC:-}"
 
 log() { printf '[pi5-queue] %s\n' "$*"; }
 
@@ -53,6 +57,21 @@ discover_and_clone() {
 		--jq '.[].repository.name' 2>/dev/null | sort -u)"
 	if [ -z "$found" ]; then
 		return 0
+	fi
+
+	# A topic is the opt-in: it lives on GitHub, so a repo joins or leaves
+	# without touching this machine, and it is a query rather than a judgement
+	# call - no model involved in deciding what gets cloned.
+	if [ -n "$QUEUE_TOPIC" ]; then
+		local allowed
+		allowed="$(gh search repos --owner "$owner" --topic "$QUEUE_TOPIC" \
+			--limit 100 --json name --jq '.[].name' 2>/dev/null | sort -u)"
+		if [ -z "$allowed" ]; then
+			log "no repos carry the '$QUEUE_TOPIC' topic; nothing to discover"
+			return 0
+		fi
+		found="$(printf '%s\n' $found | grep -Fxf <(printf '%s\n' $allowed) || true)"
+		[ -n "$found" ] || return 0
 	fi
 
 	local name
