@@ -193,10 +193,23 @@ not change, and the run ends if it keeps going.
 The only unbounded loop in the repo is the Telegram bridge's polling loop, which
 is a daemon and meant to be.
 
-**One hazard that is not a loop but is worth knowing:** the agent can work
-issues in `my-pi5-setup` itself, which means editing its own code. Nothing stops
-that, and it is sometimes what you want — but review those diffs with more care
-than most.
+## Working on itself
+
+The agent can be pointed at `my-pi5-setup`, which means it can edit its own
+code — and a bad edit to `bin/pi5-agent` breaks every later run, including the
+one that would fix it.
+
+So when the working directory *is* this repo, writes to
+`AGENT_PROTECTED_PATHS` — `bin/`, `lib/`, `scripts/`, `apps/`, `Makefile` — are
+refused. Docs, README and `settings.env` stay editable, which is most of what
+you would sensibly ask it to do here anyway.
+
+The check is scoped: in any other repo those paths mean nothing and are
+writable like anything else.
+
+`opencode` edits files itself, so a write-time guard cannot reach it. There the
+check runs after the handoff: if it touched a protected path, the changes are
+reverted and nothing is committed.
 
 ## Limits worth knowing before you rely on it
 

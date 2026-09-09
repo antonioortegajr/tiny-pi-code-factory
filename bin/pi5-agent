@@ -32,6 +32,12 @@ MODEL = os.environ.get("AGENT_MODEL_ID", "")
 MAX_TURNS = int(os.environ.get("AGENT_MAX_TURNS", "20"))
 MAX_TOOL_CHARS = int(os.environ.get("AGENT_MAX_TOOL_CHARS", "4000"))
 BRANCH_PREFIX = os.environ.get("AGENT_BRANCH_PREFIX", "agent/")
+# When the agent works this repo, it can edit its own code, and a bad edit to
+# pi5-agent breaks every later run. Docs and config stay writable - only the
+# executable parts are off limits.
+SELF_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROTECTED = [p for p in os.environ.get(
+    "AGENT_PROTECTED_PATHS", "bin/,lib/,scripts/,apps/,Makefile").split(",") if p]
 # Repo-specific instructions get prepended to the system prompt. AGENTS.md is the
 # cross-tool convention (opencode reads it too), so one file steers both agents.
 # Bounded, because context here is 8K and the tool results have to fit in it.
@@ -126,6 +132,14 @@ class Tools:
             return None          # the model has no business rewriting git internals
         return full
 
+    def is_protected(self, path):
+        """True for the agent's own executable code, when it is working on the
+        repo it is running from."""
+        if os.path.realpath(self.workdir) != os.path.realpath(SELF_REPO):
+            return False
+        rel = os.path.normpath(path).lstrip("./")
+        return any(rel == p.rstrip("/") or rel.startswith(p) for p in PROTECTED)
+
     def _confirm(self, what):
         """Only for things that leave this machine. Local edits on a throwaway
         branch are reviewable and revertible, so they do not prompt."""
@@ -217,6 +231,9 @@ class Tools:
         if not self.branch:
             return ("refused: not on an agent branch yet. "
                     "Call git_branch first so the work is reviewable.")
+        if self.is_protected(path):
+            return (f"refused: {path} is this agent's own code. Docs and config "
+                    "in this repo are editable, its executable parts are not.")
         full = self._safe_path(path)
         if not full:
             return "error: path is outside the working directory"
@@ -734,6 +751,15 @@ def work_with_opencode(tools, num, title, body):
     changed = tools._git("status", "--porcelain")
     if not changed or changed.startswith("error"):
         return "opencode made no changes"
+
+    # opencode edits files itself, so the write-time guard cannot apply. Check
+    # what it touched before committing any of it.
+    touched = [ln[3:].strip() for ln in changed.splitlines() if len(ln) > 3]
+    blocked = [f for f in touched if tools.is_protected(f)]
+    if blocked:
+        tools._git("checkout", "--", ".")
+        return ("opencode modified this agent's own code (" +
+                ", ".join(blocked[:5]) + "); changes reverted, nothing committed")
 
     commit = tools.git_commit(f"fix: {title}\n\nCloses #{num}. Written by opencode "
                               f"on the Pi, unreviewed.")
