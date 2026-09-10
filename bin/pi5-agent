@@ -884,6 +884,10 @@ LABEL_FAILED = os.environ.get("AGENT_LABEL_FAILED", "agent:failed")
 # whole files. On an 8K context that is the difference between a small file and
 # a real one.
 LABEL_OPENCODE = os.environ.get("AGENT_LABEL_OPENCODE", "agent:opencode")
+# When the built-in loop produces no PR, try opencode before giving up. Its
+# failure modes are genuinely different - patch edits rather than whole-file
+# rewrites - so this is a second approach, not a retry of the same one.
+ESCALATE = os.environ.get("AGENT_ESCALATE", "1") == "1"
 
 
 def work_with_opencode(tools, num, title, body):
@@ -1017,11 +1021,34 @@ def queue(args):
         except Exception as exc:                      # noqa: BLE001
             warn(f"#{num} raised: {exc}")
 
+        # Second approach before conceding, if the first one produced nothing.
+        escalated = False
+        if (not tools.pr_url and ESCALATE and LABEL_OPENCODE not in labels
+                and shutil.which("opencode")):
+            warn(f"#{num}: the built-in loop produced no PR, trying opencode")
+            probe._git("switch", default)
+            probe._git("reset", "--hard")
+            tools = Tools(args.workdir, args.repo, True, True)
+            escalated = True
+            try:
+                result = work_with_opencode(tools, num, title, it.get("body") or "")
+                if not tools.pr_url:
+                    warn(f"#{num}: opencode also produced no PR ({result})")
+            except KeyboardInterrupt:
+                print()
+                warn(f"interrupted during #{num}; its label is unchanged")
+                probe._git("switch", default)
+                return 130
+            except Exception as exc:                  # noqa: BLE001
+                warn(f"#{num}: opencode raised: {exc}")
+
         if tools.pr_url:
             tools._gh("issue", "edit", str(num),
                       "--add-label", LABEL_DONE, "--remove-label", LABEL)
+            via = " via opencode, after the built-in loop failed" if escalated else ""
             tools._gh("issue", "comment", str(num),
-                      "--body", f"Draft PR opened by the local agent: {tools.pr_url}\n\n"
+                      "--body", f"Draft PR opened by the local agent{via}: "
+                                f"{tools.pr_url}\n\n"
                                 f"Model output is unreviewed. Please read the diff.")
             print(f"{GRN}#{num} -> {tools.pr_url}{RST}")
             worked += 1
@@ -1031,6 +1058,8 @@ def queue(args):
             reason = ("It answered in prose without ever calling a tool"
                       if not tools.branch else
                       "It started work on a branch but opened no pull request")
+            if escalated:
+                reason += ", and opencode did not manage it either"
             tools._gh("issue", "comment", str(num),
                       "--body", f"The local agent did not finish this one. {reason}. "
                                 "No pull request was opened.\n\n"

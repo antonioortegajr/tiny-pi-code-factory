@@ -315,6 +315,10 @@ make labels ARGS=owner/name    # anywhere else
 | `agent:failed` | agent could not do it, no PR | red |
 | `agent:opencode` | add alongside `agent:queued` to route it via opencode | purple |
 
+A failure escalates on its own: if the built-in loop opens no PR, the queue
+tries opencode before marking the issue `agent:failed`. The label then means
+both approaches were tried.
+
 They are a state machine rather than a category, which is why they read
 `agent:state` — the prefix groups them in GitHub's label dropdown, and the names
 stay accurate if this queue ever runs somewhere other than the Pi. Change them

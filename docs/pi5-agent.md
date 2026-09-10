@@ -155,6 +155,15 @@ anything but a draft.
 Rule of thumb: default loop for one-line and single-file changes, `agent:opencode`
 for anything touching a larger file or more than one.
 
+**It also escalates on its own.** If the built-in loop produces no PR, the queue
+resets the checkout and tries opencode before marking the issue failed
+(`AGENT_ESCALATE=0` to stop that). This is a second approach rather than a
+retry: the built-in loop's characteristic failure is a whole-file rewrite it
+cannot produce, which is precisely what patch-based editing avoids.
+
+The PR comment says when a change came from the escalation, and `agent:failed`
+now means both approaches were tried.
+
 ## Environment
 
 | Variable | Default | Meaning |
