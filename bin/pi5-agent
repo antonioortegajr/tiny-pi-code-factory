@@ -279,6 +279,71 @@ class Tools:
         print(f"{GRN}  wrote{RST} {path} ({len(content)} bytes)")
         return f"wrote {path}"
 
+    def append_file(self, path, content):
+        """Add to the end of a file without reproducing it.
+
+        write_file needs the model to emit the whole file, which is impossible
+        for anything large on an 8K context - the failure is silent, an empty
+        reply. Most small issues are an append or a replacement, so give those
+        their own tools rather than making every edit a full rewrite."""
+        if not self.allow_write:
+            return "refused: read-only run. Rerun with --allow-write."
+        if not self.branch:
+            return "refused: call git_branch first."
+        if self.is_protected(path):
+            return f"refused: {path} is this agent's own code."
+        full = self._safe_path(path)
+        if not full:
+            return "error: path is outside the working directory"
+        try:
+            existing = ""
+            if os.path.isfile(full):
+                with open(full, encoding="utf-8", errors="replace") as fh:
+                    existing = fh.read()
+            sep = "" if (not existing or existing.endswith("\n")) else "\n"
+            with open(full, "a", encoding="utf-8") as fh:
+                fh.write(sep + content.rstrip("\n") + "\n")
+        except OSError as exc:
+            return f"error: {exc}"
+        self.touched.add(path)
+        print(f"{GRN}  appended{RST} {len(content)} bytes to {path}")
+        return f"appended to {path}"
+
+    def replace_in_file(self, path, old, new):
+        """Swap one exact string for another. The workhorse for editing a large
+        file: the model only has to name the part it is changing."""
+        if not self.allow_write:
+            return "refused: read-only run. Rerun with --allow-write."
+        if not self.branch:
+            return "refused: call git_branch first."
+        if self.is_protected(path):
+            return f"refused: {path} is this agent's own code."
+        full = self._safe_path(path)
+        if not full:
+            return "error: path is outside the working directory"
+        if not os.path.isfile(full):
+            return f"error: no such file: {path}"
+        try:
+            with open(full, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+        except OSError as exc:
+            return f"error: {exc}"
+        count = text.count(old)
+        if count == 0:
+            return ("error: that exact text is not in the file. Use read_file "
+                    "and copy the text you want to replace verbatim.")
+        if count > 1:
+            return (f"error: that text appears {count} times. Include more "
+                    "surrounding lines so it matches exactly once.")
+        try:
+            with open(full, "w", encoding="utf-8") as fh:
+                fh.write(text.replace(old, new, 1))
+        except OSError as exc:
+            return f"error: {exc}"
+        self.touched.add(path)
+        print(f"{GRN}  edited{RST} {path}")
+        return f"replaced one occurrence in {path}"
+
     def git_commit(self, message):
         if not self.allow_write:
             return "refused: read-only run. Rerun with --allow-write."
@@ -348,7 +413,14 @@ SCHEMA = [
     ("git_branch", "Create and switch to a working branch. Do this before editing anything.",
      {"name": {"type": "string", "description": "Short branch name, e.g. issue-12-fix-typo."}},
      ["name"], True),
-    ("write_file", "Write a file in the checkout. Give the complete new contents.",
+    ("append_file", "Add text to the end of a file. Use this rather than write_file when you are only adding.",
+     {"path": {"type": "string"}, "content": {"type": "string"}}, ["path", "content"], True),
+    ("replace_in_file", "Replace one exact piece of text in a file. Use this to change part of a large file.",
+     {"path": {"type": "string"},
+      "old": {"type": "string", "description": "Exact existing text, copied verbatim."},
+      "new": {"type": "string", "description": "What it becomes."}},
+     ["path", "old", "new"], True),
+    ("write_file", "Write a whole file. Only for a new or very small file - you must give the complete contents.",
      {"path": {"type": "string"}, "content": {"type": "string"}}, ["path", "content"], True),
     ("git_commit", "Commit everything you have changed.",
      {"message": {"type": "string"}}, ["message"], True),
@@ -589,8 +661,11 @@ How to work:
 1. Read the issue. Use search_files and read_file to find the relevant code.
    Never guess at file contents or issue text.
 2. Call git_branch before you change anything.
-3. Make the smallest change that addresses the issue. write_file takes the
-   COMPLETE new contents of the file, so read it first.
+3. Make the smallest change that addresses the issue:
+   - adding to the end of a file -> append_file
+   - changing part of a file -> replace_in_file, copying the old text verbatim
+   - write_file only for a new or tiny file: it needs the COMPLETE contents,
+     which you cannot produce for a large one
 4. git_commit with a clear message.
 5. gh_pr_create as a draft, describing what you changed and what you were unsure
    about.
@@ -732,14 +807,15 @@ def agent_loop(prompt, tools, include_write):
         # A small model often answers "I will add that line" without calling
         # anything. Treating that as a finished job is how an issue gets marked
         # failed with no branch and no explanation.
-        if include_write and not used_a_tool and nudges < 2:
+        if include_write and (not used_a_tool or not content.strip()) and nudges < 2:
             nudges += 1
             print(f"{DIM}  no tool used yet; asking it to act (nudge {nudges}/2){RST}")
             messages.append({"role": "assistant", "content": content})
             messages.append({"role": "user", "content":
-                "You have not changed anything yet. Do not describe what you "
-                "would do - do it. Reply with a tool call now, starting with "
-                "git_branch if you are about to edit a file."})
+                "You have not finished. Do not describe what you would do - do "
+                "it. Reply with a single tool call now. To add a line to the "
+                "end of a file use append_file; to change part of one use "
+                "replace_in_file. Do not use write_file on a large file."})
             continue
 
         print("\n" + (content or "(no answer)").strip())

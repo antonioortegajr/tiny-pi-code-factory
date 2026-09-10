@@ -71,13 +71,31 @@ commit, open a draft PR, print the review diff, stop.
 | `gh_issue_list`, `gh_issue_view` | no |
 | `list_files`, `read_file`, `search_files` | no |
 | `git_diff` | no |
-| `git_branch`, `write_file`, `git_commit` | yes |
+| `git_branch`, `append_file`, `replace_in_file`, `write_file`, `git_commit` | yes |
 | `gh_pr_create`, `gh_issue_comment` | yes, and prompts |
 
-### Why eleven tools
+### Editing without rewriting
+
+Three write tools, in the order you should reach for them:
+
+| Tool | For |
+| --- | --- |
+| `append_file` | adding to the end of a file |
+| `replace_in_file` | changing part of one — give the old text verbatim |
+| `write_file` | a new or tiny file only |
+
+`write_file` needs the model to emit the **complete** file. For anything large
+that is impossible on an 8K context, and it fails silently — an empty reply, no
+error. The other two let the model name only the part it is changing, which is
+what makes a real file editable at this size.
+
+`replace_in_file` refuses a string that matches zero times or more than once,
+and says which, rather than guessing at the intended one.
+
+### Why so few tools
 
 Tool-choice accuracy falls off sharply as the menu grows, and a 4B model is
-choosing. Eleven it picks correctly beats forty it guesses between. This is the
+choosing. A dozen it picks correctly beats forty it guesses between. This is the
 same reason an MCP server is the wrong shape here.
 
 ## Safety model
@@ -242,9 +260,9 @@ checked after the fact, since opencode edits files itself.
 
 ## Limits worth knowing before you rely on it
 
-- **`write_file` replaces whole files.** No patches. Reliable for a small model,
-  but a large file costs a full read plus a full write against 8K of context.
-  Focused issues on small files work; sprawling refactors do not.
+- **Large files need `append_file` or `replace_in_file`.** `write_file` is a
+  whole-file rewrite and will not work on anything substantial at this context
+  size. The system prompt says so, but a model can still choose badly.
 - **A 4B model gets argument names wrong**, occasionally rewrites more than it
   needed to, and sometimes stalls. `agent:failed` is the honest signal for
   "too vague or too large" — treat it as calibration, not a bug.
