@@ -556,104 +556,6 @@ def chat(messages, tools=None):
     return msg
 
 
-def _plain(messages, timeout=300):
-    """A completion with no tools, so a tool-parsing bug cannot mask a model
-    that is simply not generating."""
-    payload = {"messages": messages, "temperature": 0.2, "max_tokens": 120,
-               "model": resolve_model()}
-    if not SHOW_THINKING:
-        payload["think"] = False
-    data = post("/chat/completions", payload, timeout=timeout)
-    msg = data["choices"][0]["message"]
-    if msg.get("content"):
-        msg["content"] = strip_thinking(msg["content"])
-    return data
-
-
-def selftest():
-    """Four stages, in dependency order. Each one prints what it saw, so a
-    failure says which layer broke rather than just 'it did not work'."""
-    import time
-
-    print(f"{BOLD}1. endpoint{RST}")
-    print(f"   {BASE_URL}")
-    model = loaded_model()
-    if not model:
-        print(f"   {RED}FAIL{RST} no model loaded")
-        print("\n   ollama list    then    ollama pull qwen3.5:4b-q4_K_M")
-        return 1
-    print(f"   {GRN}ok{RST}  reachable")
-
-    print(f"\n{BOLD}2. model{RST}")
-    print(f"   {GRN}ok{RST}  {model}")
-
-    print(f"\n{BOLD}3. inference{RST}")
-    print(f"   {DIM}asking: 'In one short sentence, what is a Raspberry Pi?'{RST}")
-    started = time.time()
-    try:
-        data = _plain([{"role": "user",
-                        "content": "In one short sentence, what is a Raspberry Pi?"}])
-    except SystemExit:
-        raise
-    elapsed = time.time() - started
-    answer = (data["choices"][0]["message"].get("content") or "").strip()
-    if not answer:
-        print(f"   {RED}FAIL{RST} the model returned nothing")
-        return 1
-    print(f"   {GRN}ok{RST}  {answer[:200]}")
-
-    # tok/s is the number that tells you whether this is usable day to day.
-    tokens = (data.get("usage") or {}).get("completion_tokens")
-    if tokens and elapsed > 0:
-        rate = tokens / elapsed
-        verdict = ("comfortable" if rate >= 5 else
-                   "usable but slow" if rate >= 2 else
-                   "painful - consider a smaller model")
-        print(f"   {DIM}{tokens} tokens in {elapsed:.1f}s = {rate:.1f} tok/s ({verdict}){RST}")
-    else:
-        print(f"   {DIM}{elapsed:.1f}s to first complete answer{RST}")
-
-    print(f"\n{BOLD}4. tool calling{RST}")
-    specs = tool_specs(include_write=False)
-
-    print(f"   {DIM}trying native tool_calls…{RST}")
-    msg = chat([{"role": "system", "content": "You have tools. Use them rather than guessing."},
-                {"role": "user", "content": "List the open issues in this repository."}],
-               specs)
-    calls = msg.get("tool_calls") or []
-    if calls:
-        names = ", ".join(c["function"]["name"] for c in calls)
-        print(f"   {GRN}ok{RST}  native tool_calls: {names}")
-        print(f"\n{GRN}{BOLD}Local AI is working.{RST} pi5-agent runs in native mode.")
-        return 0
-
-    print(f"   {YEL}--{RST}  no native tool_calls from this runtime")
-    print(f"   {DIM}trying the text protocol instead…{RST}")
-
-    # Native tool calling is a convenience, not a requirement. A model that can
-    # follow a two-line format can drive every tool here just as well.
-    msg = chat([{"role": "system",
-                 "content": "You are a tool-using assistant.\n" + tools_as_text(specs)},
-                {"role": "user", "content": "List the open issues in this repository."}],
-               None)
-    parsed = parse_text_call(msg.get("content") or "")
-    if parsed and parsed[1] is not None:
-        print(f"   {GRN}ok{RST}  text protocol: {parsed[0]}({parsed[1]})")
-        print(f"\n{GRN}{BOLD}Local AI is working.{RST} pi5-agent will use the text")
-        print("protocol automatically - AGENT_TOOL_MODE=auto probes and falls back.")
-        return 0
-    if parsed:
-        print(f"   {YEL}--{RST}  called {parsed[0]} but the ARGS JSON was malformed")
-        print("   Usable, but expect retries. A different model may do better.")
-        return 1
-
-    print(f"   {RED}FAIL{RST} neither protocol produced a tool call. It replied:")
-    print(DIM + "   " + (msg.get("content") or "(empty)")[:300] + RST)
-    print("\nInference works, so chat and opencode are fine. For the agent, try a")
-    print("model trained for tool use:  ollama pull hermes3:3b")
-    return 1
-
-
 SYSTEM = """You are a careful engineer working on a repository, running locally
 on a Raspberry Pi. You work one issue at a time.
 
@@ -698,6 +600,124 @@ def repo_instructions(workdir):
             text = text[:AGENTS_MD_MAX] + "\n...(truncated)"
         return name, text, truncated
     return None, "", False
+
+
+def _plain(messages, timeout=300):
+    """A completion with no tools, so a tool-parsing bug cannot mask a model
+    that is simply not generating.
+
+    The token budget is generous on purpose. A reasoning model spends tokens
+    thinking before it answers, and a tight cap truncates it mid-thought - the
+    reply then comes back with empty content and looks like a dead model.
+    """
+    payload = {"messages": messages, "temperature": 0.2, "max_tokens": 1024,
+               "model": resolve_model()}
+    if not SHOW_THINKING:
+        payload["think"] = False
+    data = post("/chat/completions", payload, timeout=timeout)
+    msg = data["choices"][0]["message"]
+    if msg.get("content"):
+        msg["content"] = strip_thinking(msg["content"])
+    return data
+
+
+def selftest():
+    """Four stages, in dependency order. Each one prints what it saw, so a
+    failure says which layer broke rather than just 'it did not work'."""
+    import time
+
+    print(f"{BOLD}1. endpoint{RST}")
+    print(f"   {BASE_URL}")
+    model = loaded_model()
+    if not model:
+        print(f"   {RED}FAIL{RST} no model loaded")
+        print("\n   ollama list    then    ollama pull qwen3.5:4b-q4_K_M")
+        return 1
+    print(f"   {GRN}ok{RST}  reachable")
+
+    print(f"\n{BOLD}2. model{RST}")
+    print(f"   {GRN}ok{RST}  {model}")
+
+    print(f"\n{BOLD}3. inference{RST}")
+    print(f"   {DIM}asking: 'In one short sentence, what is a Raspberry Pi?'{RST}")
+    started = time.time()
+    try:
+        data = _plain([{"role": "user",
+                        "content": "In one short sentence, what is a Raspberry Pi?"}])
+    except SystemExit:
+        raise
+    elapsed = time.time() - started
+    reply = data["choices"][0]["message"]
+    answer = (reply.get("content") or "").strip()
+    if not answer:
+        # Some servers put a reasoning model's output in its own field and
+        # leave content empty. That is a working model, reported badly.
+        reasoning = (reply.get("reasoning_content") or reply.get("reasoning") or "").strip()
+        finish = data["choices"][0].get("finish_reason", "")
+        if reasoning:
+            print(f"   {YEL}--{RST}  content was empty but the model did reason:")
+            print(DIM + "   " + reasoning[:200] + RST)
+            answer = reasoning
+        else:
+            print(f"   {RED}FAIL{RST} the model returned nothing"
+                  + (f" (finish_reason: {finish})" if finish else ""))
+            if finish == "length":
+                print("   It ran out of tokens before answering - raise max_tokens.")
+            else:
+                print("   Try it directly:  ollama run " + resolve_model())
+            return 1
+    print(f"   {GRN}ok{RST}  {answer[:200]}")
+
+    # tok/s is the number that tells you whether this is usable day to day.
+    tokens = (data.get("usage") or {}).get("completion_tokens")
+    if tokens and elapsed > 0:
+        rate = tokens / elapsed
+        verdict = ("comfortable" if rate >= 5 else
+                   "usable but slow" if rate >= 2 else
+                   "painful - consider a smaller model")
+        print(f"   {DIM}{tokens} tokens in {elapsed:.1f}s = {rate:.1f} tok/s ({verdict}){RST}")
+    else:
+        print(f"   {DIM}{elapsed:.1f}s to first complete answer{RST}")
+
+    print(f"\n{BOLD}4. tool calling{RST}")
+    specs = tool_specs(include_write=False)
+
+    print(f"   {DIM}trying native tool_calls…{RST}")
+    msg = chat([{"role": "system", "content": "You have tools. Use them rather than guessing."},
+                {"role": "user", "content": "List the open issues in this repository."}],
+               specs)
+    calls = msg.get("tool_calls") or []
+    if calls:
+        names = ", ".join(c["function"]["name"] for c in calls)
+        print(f"   {GRN}ok{RST}  native tool_calls: {names}")
+        print(f"\n{GRN}{BOLD}Local AI is working.{RST} pi5-agent runs in native mode.")
+        return 0
+
+    print(f"   {YEL}--{RST}  no native tool_calls from this runtime")
+    print(f"   {DIM}trying the text protocol instead…{RST}")
+
+    # Use the same system prompt the real loop uses. A test with a thinner
+    # prompt can fail while the thing it tests works, which is worse than
+    # having no test at all.
+    msg = chat([{"role": "system", "content": SYSTEM + "\n" + tools_as_text(specs)},
+                {"role": "user", "content": "List the open issues in this repository."}],
+               None)
+    parsed = parse_text_call(msg.get("content") or "")
+    if parsed and parsed[1] is not None:
+        print(f"   {GRN}ok{RST}  text protocol: {parsed[0]}({parsed[1]})")
+        print(f"\n{GRN}{BOLD}Local AI is working.{RST} pi5-agent will use the text")
+        print("protocol automatically - AGENT_TOOL_MODE=auto probes and falls back.")
+        return 0
+    if parsed:
+        print(f"   {YEL}--{RST}  called {parsed[0]} but the ARGS JSON was malformed")
+        print("   Usable, but expect retries. A different model may do better.")
+        return 1
+
+    print(f"   {RED}FAIL{RST} neither protocol produced a tool call. It replied:")
+    print(DIM + "   " + (msg.get("content") or "(empty)")[:300] + RST)
+    print("\nInference works, so chat and opencode are fine. For the agent, try a")
+    print("model trained for tool use:  ollama pull hermes3:3b")
+    return 1
 
 
 def dispatch(tools, name, args, turn, mode, seen=None):
