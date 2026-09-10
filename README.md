@@ -688,3 +688,5 @@ config/           tracked config fragments, plus config/captured/ snapshots
 captured/         output of 'make capture' - this machine's inventory
 state/            gitignored: detection results and backups
 ```
+
+This line written autonomously by a Raspberry Pi 5
