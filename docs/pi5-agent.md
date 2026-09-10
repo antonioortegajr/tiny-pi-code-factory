@@ -71,6 +71,7 @@ commit, open a draft PR, print the review diff, stop.
 | `gh_issue_list`, `gh_issue_view` | no |
 | `list_files`, `read_file`, `search_files` | no |
 | `git_diff` | no |
+| `cannot_complete` | no |
 | `git_branch`, `append_file`, `replace_in_file`, `write_file`, `git_commit` | yes |
 | `gh_pr_create`, `gh_issue_comment` | yes, and prompts |
 
@@ -91,6 +92,40 @@ what makes a real file editable at this size.
 
 `replace_in_file` refuses a string that matches zero times or more than once,
 and says which, rather than guessing at the intended one.
+
+### Stopping is an outcome
+
+`cannot_complete(reason)` ends the run and posts the model's reason on the
+issue, verbatim.
+
+It exists because the alternative exits are both bad. A model that cannot do the
+job can only write prose, and prose is indistinguishable from a model that
+merely failed to answer — the queue is left guessing, which is why its failure
+comment used to *infer* a reason from whether a branch existed. And a small model
+asked for something it cannot obtain does not usually stop at all: it invents a
+plausible answer, which arrives as a plausible-looking PR. A wrong PR costs more
+review than an honest stop.
+
+So the issue gets this instead of a bare `agent:failed`:
+
+> The local agent stopped and said why:
+>
+> > The issue asks which model wrote the line. Nothing I can call reports that.
+>
+> No pull request was opened, and opencode was not tried…
+
+**A stated reason skips the escalation.** Escalation answers the *harness's*
+limits — opencode edits by patch where `write_file` rewrites whole files — and
+it runs [the same local model](#handing-an-issue-to-opencode). It cannot know
+anything this loop did not. Retrying "I have no way to find this out" spends up
+to an hour of the board to reach the same wall, so a give-up goes straight to
+`agent:failed` with the reason attached. Add `agent:opencode` by hand if you
+want the wider harness tried anyway.
+
+What it does **not** do is guarantee the stop happens. Nothing enforces the
+call, and a small model's characteristic failure is not stopping — it asserts
+success. This makes an honest stop legible; it does not make a dishonest finish
+impossible. That is what the draft PR is for.
 
 ### Why so few tools
 

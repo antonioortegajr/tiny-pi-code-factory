@@ -148,6 +148,7 @@ class Tools:
         self.touched = set()
         self.pr_url = ""        # set when a draft PR is actually opened
         self.issue_number = None  # so a PR can close the issue it came from
+        self.gave_up = ""       # the model's own reason for stopping, if it said one
 
     # -- helpers -----------------------------------------------------------
 
@@ -409,6 +410,25 @@ class Tools:
             return refusal
         return self._gh("issue", "comment", str(number), "--body", body) or "comment posted"
 
+    # -- give up -----------------------------------------------------------
+
+    def cannot_complete(self, reason):
+        """The honest exit.
+
+        Without one, a model that cannot do the job has only prose to say so,
+        and prose is indistinguishable from a model that simply did not answer.
+        The queue then guesses at what went wrong. Worse, a small model asked
+        for something it cannot obtain tends to invent an answer rather than
+        stop, and an invented answer arrives as a plausible-looking PR.
+
+        A tool makes stopping a first-class outcome: the reason is the model's
+        own words, it reaches the issue verbatim, and the run ends there.
+        """
+        # One line, bounded: it is quoted into a Markdown blockquote on the
+        # issue, where a stray newline ends the quote mid-reason.
+        self.gave_up = " ".join((reason or "").split())[:500] or "no reason given"
+        return "acknowledged: stopping here. Your reason will be posted on the issue."
+
 
 # name, description, properties, required, needs_write
 SCHEMA = [
@@ -442,6 +462,13 @@ SCHEMA = [
      {"title": {"type": "string"}, "body": {"type": "string"}}, ["title", "body"], True),
     ("gh_issue_comment", "Post a comment on an issue.",
      {"number": {"type": "integer"}, "body": {"type": "string"}}, ["number", "body"], True),
+    ("cannot_complete", "Stop and report that you cannot do this issue. Use it when the "
+                        "issue needs information you have no tool to obtain, or is "
+                        "unclear or too large. Stopping is a correct outcome; guessing "
+                        "is not.",
+     {"reason": {"type": "string",
+                 "description": "One or two sentences: what you needed and could not get."}},
+     ["reason"], False),
 ]
 
 
@@ -603,7 +630,9 @@ Rules:
   you are about to do. Call a tool, or give the answer.
 - One tool call at a time. Read each result before the next step.
 - Do not close issues or merge anything. A human reviews your work.
-- If the issue is unclear or too large, say so and stop rather than guessing.
+- If the issue is unclear, too large, or needs a fact no tool can give you,
+  call cannot_complete with the reason. Do not guess and do not invent a
+  plausible answer - a wrong PR costs more than an honest stop.
 - Be brief in prose."""
 
 
@@ -838,6 +867,8 @@ def agent_loop(prompt, tools, include_write):
                     "tool_call_id": call.get("id", fname),
                     "content": dispatch(tools, fname, fargs, turn, mode, seen_calls),
                 })
+            if tools.gave_up:
+                break
             continue
 
         if mode == "text":
@@ -849,6 +880,8 @@ def agent_loop(prompt, tools, include_write):
                 messages.append({"role": "assistant", "content": content})
                 # No role:"tool" in this mode - the result comes back as user text.
                 messages.append({"role": "user", "content": f"TOOL RESULT:\n{result}"})
+                if tools.gave_up:
+                    break
                 continue
 
         # A small model often answers "I will add that line" without calling
@@ -869,6 +902,9 @@ def agent_loop(prompt, tools, include_write):
         break
     else:
         warn(f"gave up after {MAX_TURNS} turns")
+
+    if tools.gave_up:
+        warn(f"the model stopped: {tools.gave_up}")
 
     if tools.branch:
         default = tools.default_branch()
@@ -1033,9 +1069,20 @@ def queue(args):
         except Exception as exc:                      # noqa: BLE001
             warn(f"#{num} raised: {exc}")
 
+        # Kept before the escalation replaces `tools`, since the reason has to
+        # outlive the object that recorded it.
+        gave_up = tools.gave_up
+
         # Second approach before conceding, if the first one produced nothing.
+        #
+        # Not when the model said why it stopped. Escalation exists for the
+        # harness's limits - opencode edits by patch where write_file rewrites
+        # whole files - and it runs the same local model, so it cannot know
+        # anything this loop did not. Retrying a stated "I have no way to find
+        # this out" costs up to an hour of the board and reaches the same wall.
         escalated = False
-        if (not tools.pr_url and ESCALATE and LABEL_OPENCODE not in labels
+        if (not tools.pr_url and not gave_up and ESCALATE
+                and LABEL_OPENCODE not in labels
                 and shutil.which("opencode")):
             warn(f"#{num}: the built-in loop produced no PR, trying opencode")
             probe._git("switch", default)
@@ -1068,16 +1115,25 @@ def queue(args):
         else:
             tools._gh("issue", "edit", str(num),
                       "--add-label", LABEL_FAILED, "--remove-label", LABEL)
-            reason = ("It answered in prose without ever calling a tool"
-                      if not tools.branch else
-                      "It started work on a branch but opened no pull request")
-            if escalated:
-                reason += ", and opencode did not manage it either"
-            tools._gh("issue", "comment", str(num),
-                      "--body", f"The local agent did not finish this one. {reason}. "
-                                "No pull request was opened.\n\n"
-                                "Re-label `agent:queued` to try again.")
-            warn(f"#{num} produced no PR")
+            if gave_up:
+                # Its own words, not our guess at them.
+                body = (f"The local agent stopped and said why:\n\n> {gave_up}\n\n"
+                        "No pull request was opened, and opencode was not tried: "
+                        "it runs the same model, so a second attempt would hit the "
+                        "same wall. Answer the question above in the issue and "
+                        "re-label `agent:queued`, or add `agent:opencode` to send "
+                        "it to the wider harness anyway.")
+            else:
+                reason = ("It answered in prose without ever calling a tool"
+                          if not tools.branch else
+                          "It started work on a branch but opened no pull request")
+                if escalated:
+                    reason += ", and opencode did not manage it either"
+                body = (f"The local agent did not finish this one. {reason}. "
+                        "No pull request was opened.\n\n"
+                        "Re-label `agent:queued` to try again.")
+            tools._gh("issue", "comment", str(num), "--body", body)
+            warn(f"#{num}: {gave_up}" if gave_up else f"#{num} produced no PR")
             failed += 1
 
     probe._git("switch", default)

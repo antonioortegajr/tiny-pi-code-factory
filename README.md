@@ -319,6 +319,12 @@ A failure escalates on its own: if the built-in loop opens no PR, the queue
 tries opencode before marking the issue `agent:failed`. The label then means
 both approaches were tried.
 
+Unless the agent *said why it stopped*. `cannot_complete` is a tool, so an issue
+needing a fact it cannot obtain ends with the model's own reason quoted on the
+issue rather than a guess at what went wrong — and skips the escalation, since
+opencode runs the same model and would hit the same wall. See
+[stopping is an outcome](docs/pi5-agent.md#stopping-is-an-outcome).
+
 They are a state machine rather than a category, which is why they read
 `agent:state` — the prefix groups them in GitHub's label dropdown, and the names
 stay accurate if this queue ever runs somewhere other than the Pi. Change them
