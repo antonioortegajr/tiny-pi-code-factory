@@ -31,6 +31,9 @@ BASE_URL = os.environ.get("AGENT_BASE_URL", "http://127.0.0.1:11434/v1")
 MODEL = os.environ.get("AGENT_MODEL_ID", "")
 MAX_TURNS = int(os.environ.get("AGENT_MAX_TURNS", "20"))
 MAX_TOOL_CHARS = int(os.environ.get("AGENT_MAX_TOOL_CHARS", "4000"))
+# Generous: a reasoning model on a CPU produces a few tokens a second, and the
+# first request also waits for the weights to load from the SSD.
+REQUEST_TIMEOUT = int(os.environ.get("AGENT_TIMEOUT", "900"))
 BRANCH_PREFIX = os.environ.get("AGENT_BRANCH_PREFIX", "agent/")
 SELF_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Empty by default. Work on this repo lands on a branch as a draft PR like any
@@ -499,7 +502,8 @@ def tool_specs(include_write):
 
 # --------------------------------------------------------------------------
 
-def post(path, payload, timeout=600):
+def post(path, payload, timeout=None):
+    timeout = timeout or REQUEST_TIMEOUT
     req = urllib.request.Request(
         f"{BASE_URL}{path}", data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"})
@@ -508,8 +512,19 @@ def post(path, payload, timeout=600):
             return json.load(r)
     except urllib.error.HTTPError as e:
         die(f"{e.code} from {BASE_URL}{path}: {e.read().decode()[:400]}")
+    except TimeoutError:
+        die(f"no reply within {timeout}s.\n"
+            "  A reasoning model on a Pi is slow, and the first request also\n"
+            "  loads the weights from disk. Either wait longer:\n"
+            "    AGENT_TIMEOUT=1800 make llm-test\n"
+            "  or use a model that does not think before answering:\n"
+            "    ollama pull hermes3:3b && ollama run hermes3:3b")
     except urllib.error.URLError as e:
-        die(f"cannot reach {BASE_URL} ({e.reason})\n  check:  systemctl status lmstudio-server")
+        # A socket timeout arrives wrapped in URLError on some paths.
+        if isinstance(getattr(e, "reason", None), TimeoutError):
+            die(f"no reply within {timeout}s - see AGENT_TIMEOUT")
+        die(f"cannot reach {BASE_URL} ({e.reason})\n"
+            "  check:  systemctl status ollama")
 
 
 _RESOLVED_MODEL = None
@@ -602,7 +617,7 @@ def repo_instructions(workdir):
     return None, "", False
 
 
-def _plain(messages, timeout=300):
+def _plain(messages, timeout=None):
     """A completion with no tools, so a tool-parsing bug cannot mask a model
     that is simply not generating.
 
@@ -640,6 +655,7 @@ def selftest():
 
     print(f"\n{BOLD}3. inference{RST}")
     print(f"   {DIM}asking: 'In one short sentence, what is a Raspberry Pi?'{RST}")
+    print(f"   {DIM}first run also loads the weights; allow a few minutes{RST}", flush=True)
     started = time.time()
     try:
         data = _plain([{"role": "user",

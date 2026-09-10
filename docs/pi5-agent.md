@@ -163,11 +163,22 @@ for anything touching a larger file or more than one.
 | `AGENT_MODEL_ID` | *(whatever is loaded)* | pin a specific model |
 | `AGENT_MAX_TURNS` | `20` | tool-call rounds before giving up |
 | `AGENT_MAX_TOOL_CHARS` | `4000` | truncation per tool result |
+| `AGENT_TIMEOUT` | `900` | seconds to wait for a reply |
 | `AGENT_INSTRUCTIONS_MAX_CHARS` | `3000` | truncation for AGENTS.md |
 | `AGENT_SHOW_THINKING` | `0` | `1` keeps a reasoning model's narration |
 | `AGENT_TOOL_MODE` | `auto` | `native`, `text`, or `auto` (probe then fall back) |
 | `AGENT_BRANCH_PREFIX` | `agent/` | branch namespace |
 | `AGENT_LABEL` | `agent:queued` | queue trigger |
+
+## Speed
+
+A reasoning model on a Pi 5 generates a few tokens a second, and it spends some
+of them thinking before it answers. A single reply can take minutes; the first
+one also waits for the weights to load from the SSD.
+
+`AGENT_TIMEOUT` defaults to 900 seconds for that reason. If you hit it, either
+raise it or use a model that does not reason before answering — `hermes3:3b` is
+both smaller and more direct, which is why it is the fallback.
 
 ## Reasoning models
 

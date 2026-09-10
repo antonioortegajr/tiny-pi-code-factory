@@ -107,6 +107,7 @@ if [ -z "$ENDPOINT" ] || [ -z "${models:-}" ]; then
 elif [ ! -x "$REPO_ROOT/bin/pi5-agent" ]; then
 	note "bin/pi5-agent missing"
 else
+	log "asking the model to answer and to call a tool; this takes a minute or two"
 	if AGENT_BASE_URL="$ENDPOINT" "$REPO_ROOT/bin/pi5-agent" --selftest >/dev/null 2>&1; then
 		ok "inference and tool calling both work - see 'make llm-test' for detail"
 	else
