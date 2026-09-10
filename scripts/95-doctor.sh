@@ -39,6 +39,20 @@ elif mountpoint -q "$SSD_MOUNT_POINT" 2>/dev/null; then
 	mountpoint -q "$TARGET_HOME/.ssh" 2>/dev/null \
 		&& ok "~/.ssh is on the SSD - keys survive a reflash" \
 		|| note "~/.ssh is on the boot drive (run: make ssd-state)"
+
+	# Linux is case-sensitive, so ~/Github and ~/GitHub are different places and
+	# only one of them is the SSD. A clone in the wrong one looks fine until a
+	# reflash takes it.
+	base="$(basename "$GITHUB_DIR")"
+	for other in "$TARGET_HOME"/*; do
+		[ -d "$other" ] || continue
+		[ "$other" = "$GITHUB_DIR" ] && continue
+		if [ "$(basename "$other" | tr '[:upper:]' '[:lower:]')" = "$(echo "$base" | tr '[:upper:]' '[:lower:]')" ]; then
+			bad "$other differs from $GITHUB_DIR only by case - it is NOT on the SSD"
+			fix "mv $other/* $GITHUB_DIR/ && rmdir $other"
+			fix "then: make app APP=gh    # relink ~/.local/bin/pi5-agent"
+		fi
+	done
 else
 	bad "$SSD_MOUNT_POINT is not mounted"
 	fix "make storage      # then: make ssd-state"
