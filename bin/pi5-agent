@@ -147,6 +147,7 @@ class Tools:
         self.branch = None      # set once we switch to an agent branch
         self.touched = set()
         self.pr_url = ""        # set when a draft PR is actually opened
+        self.issue_number = None  # so a PR can close the issue it came from
 
     # -- helpers -----------------------------------------------------------
 
@@ -380,6 +381,16 @@ class Tools:
             return refusal
         if not self.branch:
             return "refused: no agent branch to open a PR from."
+
+        # The body is whatever the model wrote, so the link cannot depend on it
+        # remembering. GitHub only closes on close/fixes/resolves - "addresses"
+        # and a bare "#1" look like a link but do nothing on merge.
+        if self.issue_number:
+            closing = re.compile(
+                r"\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\s+#%d\b" % self.issue_number,
+                re.I)
+            if not closing.search(body or ""):
+                body = (body or "").rstrip() + f"\n\nCloses #{self.issue_number}"
         push = self._git("push", "-u", "origin", self.branch)
         if push.startswith("error"):
             return push
@@ -585,7 +596,7 @@ How to work:
      which you cannot produce for a large one
 4. git_commit with a clear message.
 5. gh_pr_create as a draft, describing what you changed and what you were unsure
-   about.
+   about. The issue is linked for you - you do not need to mention it.
 
 Rules:
 - Do not narrate your reasoning. No "Thinking Process:", no commentary on what
@@ -938,7 +949,7 @@ def work_with_opencode(tools, num, title, body):
         return commit
     return tools.gh_pr_create(
         f"{title}",
-        f"Addresses #{num}.\n\nWritten by the local model via opencode on a "
+        f"Closes #{num}.\n\nWritten by the local model via opencode on a "
         f"Raspberry Pi. Unreviewed - please read the diff.")
 
 
@@ -997,6 +1008,7 @@ def queue(args):
             continue
 
         tools = Tools(args.workdir, args.repo, True, True)
+        tools.issue_number = num
         labels = {lab.get("name", "") for lab in (it.get("labels") or [])}
 
         try:
@@ -1029,6 +1041,7 @@ def queue(args):
             probe._git("switch", default)
             probe._git("reset", "--hard")
             tools = Tools(args.workdir, args.repo, True, True)
+            tools.issue_number = num
             escalated = True
             try:
                 result = work_with_opencode(tools, num, title, it.get("body") or "")
@@ -1096,6 +1109,7 @@ def main():
         ap.error("give a prompt, --issue N, --queue, or --selftest")
 
     tools = Tools(args.workdir, args.repo, args.allow_write, args.yes)
+    tools.issue_number = args.issue
 
     if args.allow_write:
         # Mixing the model's edits into your work in progress makes the diff
