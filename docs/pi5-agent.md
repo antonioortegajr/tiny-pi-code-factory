@@ -142,7 +142,13 @@ The boundary is not "read nothing" — it has to write to be useful. It is
   branch.
 - `git_commit` refuses on the default branch.
 - PRs are **always drafts**, and opening one prompts.
-- **Closing issues is not a tool.** Review and close are yours.
+- **Closing issues is not a tool.** Review and close are yours. A PR says
+  `Refs #N`, never `Closes #N` — in the body *or* the commit message — so
+  merging cross-links the issue and leaves it open.
+- **The branch name comes from the issue number**, not the model. `agent/issue-N`
+  is the queue's only idempotence key.
+- **A run never hands back a dirty checkout.** Unfinished edits are committed on
+  the agent branch as `wip:`; the default branch comes back clean.
 - Refuses to start on a dirty tree (`--force` overrides), so the review diff is
   the agent's work alone.
 - `git` and `gh` run with fixed argv, never a shell string.

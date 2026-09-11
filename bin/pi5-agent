@@ -254,6 +254,15 @@ class Tools:
         slug = re.sub(r"[^a-zA-Z0-9._/-]+", "-", name).strip("-/") or "work"
         if not slug.startswith(BRANCH_PREFIX):
             slug = BRANCH_PREFIX + slug
+        # When there is an issue, its number is not the model's to choose.
+        # agent/issue-N is the queue's only idempotence key - it is how a rerun
+        # knows this issue was already attempted - and a model working #3 has
+        # twice now named its branch after #1. Take the name back.
+        if self.issue_number is not None:
+            forced = f"{BRANCH_PREFIX}issue-{self.issue_number}"
+            if slug != forced:
+                print(f"{DIM}  branch name {slug} -> {forced}{RST}")
+            slug = forced
         out = self._git("switch", "-c", slug)
         if out.startswith("error"):
             out = self._git("switch", slug)
@@ -383,15 +392,23 @@ class Tools:
         if not self.branch:
             return "refused: no agent branch to open a PR from."
 
-        # The body is whatever the model wrote, so the link cannot depend on it
-        # remembering. GitHub only closes on close/fixes/resolves - "addresses"
-        # and a bare "#1" look like a link but do nothing on merge.
+        # Link the PR to its issue, but do NOT let it close it.
+        #
+        # This used to append "Closes #N" so a merge would tidy up. Nothing
+        # checks that the diff has anything to do with the issue, and a drifting
+        # model produced a PR that redid a different, already-merged ticket -
+        # carrying "Closes #3" onto work that had nothing to do with #3.
+        # Merging it would have closed the wrong issue and looked like success.
+        #
+        # "Refs #N" cross-links both ways and closes nothing. Closing stays a
+        # human act, like merging and reviewing.
         if self.issue_number:
             closing = re.compile(
-                r"\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\s+#%d\b" % self.issue_number,
-                re.I)
-            if not closing.search(body or ""):
-                body = (body or "").rstrip() + f"\n\nCloses #{self.issue_number}"
+                r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)(\s+#%d\b)"
+                % self.issue_number, re.I)
+            body = closing.sub(r"Refs\1", body or "")
+            if f"#{self.issue_number}" not in body:
+                body = body.rstrip() + f"\n\nRefs #{self.issue_number}"
         push = self._git("push", "-u", "origin", self.branch)
         if push.startswith("error"):
             return push
@@ -908,18 +925,43 @@ def agent_loop(prompt, tools, include_write):
 
     if tools.branch:
         default = tools.default_branch()
+
+        # Never hand back a dirty checkout.
+        #
+        # A run that stopped mid-edit used to leave its changes in the worktree.
+        # Switching back to the default branch carried them along, and the
+        # queue's dirty guard then skipped every later issue, every cycle,
+        # silently - one unfinishable ticket stopped the whole pipeline for
+        # hours with nothing on GitHub to say so.
+        #
+        # Committing on the agent branch keeps the attempt reviewable and hands
+        # the default branch back clean.
+        dirty = tools._git("status", "--porcelain")
+        if dirty and not dirty.startswith("error"):
+            warn("run ended with uncommitted changes; committing them on the branch")
+            out = tools.git_commit(
+                "wip: unfinished agent run\n\n"
+                "The run stopped before committing. Kept so the attempt is "
+                "reviewable; no pull request was opened.")
+            if out.startswith(("error", "refused")):
+                # Only reached when the secret scan refuses, or git fails.
+                # Discarding the edits loses the attempt; leaving them wedges
+                # every later run. The branch still records that it happened.
+                warn(f"could not commit: {out.splitlines()[0]}")
+                warn("discarding the changes so the queue is not left wedged")
+                tools._git("reset", "--hard")
+                tools._git("clean", "-fd")
+
         print(f"\n{BOLD}Review it:{RST}")
         print(f"  git -C {tools.workdir} diff {default}...{tools.branch}")
         print(f"  gh pr view --web")
         print(f"\nNothing was merged or closed. That is your call.")
 
-        # If it just edited its own code, do not leave that code checked out -
-        # the next run would execute an unreviewed pi5-agent. The work is
-        # committed on the branch, so nothing is lost.
-        if os.path.realpath(tools.workdir) == os.path.realpath(SELF_REPO):
-            tools._git("switch", default)
-            print(f"{DIM}  back on {default}; the next run uses reviewed code{RST}")
-            print(f"{DIM}  to inspect:  git switch {tools.branch}{RST}")
+        # Always back to the default branch, not only in this repo. Leaving an
+        # agent branch checked out is how the next run inherits the last one's
+        # state - and here it would also mean executing an unreviewed pi5-agent.
+        tools._git("switch", default)
+        print(f"{DIM}  back on {default}; to inspect:  git switch {tools.branch}{RST}")
     return 0
 
 
@@ -979,13 +1021,16 @@ def work_with_opencode(tools, num, title, body):
         return ("opencode modified this agent's own code (" +
                 ", ".join(blocked[:5]) + "); changes reverted, nothing committed")
 
-    commit = tools.git_commit(f"fix: {title}\n\nCloses #{num}. Written by opencode "
+    # "Refs", not "Closes": a closing keyword in a commit message closes the
+    # issue on merge just as one in the PR body does, and nothing here has
+    # checked that the diff answers the issue.
+    commit = tools.git_commit(f"fix: {title}\n\nRefs #{num}. Written by opencode "
                               f"on the Pi, unreviewed.")
     if commit.startswith("error"):
         return commit
     return tools.gh_pr_create(
         f"{title}",
-        f"Closes #{num}.\n\nWritten by the local model via opencode on a "
+        f"Refs #{num}.\n\nWritten by the local model via opencode on a "
         f"Raspberry Pi. Unreviewed - please read the diff.")
 
 
@@ -1109,7 +1154,9 @@ def queue(args):
             tools._gh("issue", "comment", str(num),
                       "--body", f"Draft PR opened by the local agent{via}: "
                                 f"{tools.pr_url}\n\n"
-                                f"Model output is unreviewed. Please read the diff.")
+                                f"Model output is unreviewed. Please read the diff. "
+                                f"It links here but will not close this issue on "
+                                f"merge - closing is yours.")
             print(f"{GRN}#{num} -> {tools.pr_url}{RST}")
             worked += 1
         else:

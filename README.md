@@ -576,8 +576,16 @@ lands anywhere you have to undo**:
   first; `write_file` refuses until `git_branch` has run, and `git_commit`
   refuses on the default branch.
 - **PRs are always drafts**, and opening one prompts. Nothing merges.
-- **It never closes issues.** That is explicitly not in the tool list — you
-  review and close.
+- **It never closes issues.** That is explicitly not in the tool list, and a PR
+  says `Refs #N`, never `Closes #N` — in the body *and* the commit message — so
+  merging cross-links the issue and leaves it open. You review and close.
+- **The branch name comes from the issue number**, not the model. `agent/issue-N`
+  is the queue's only idempotence key; a model asked for #3 has named its branch
+  after #1 more than once.
+- **A run never hands back a dirty checkout.** Edits from a run that stopped
+  early are committed on its branch as `wip:` and the default branch comes back
+  clean — otherwise the queue's own dirty guard skips every later issue, every
+  cycle, silently.
 - **Refuses to start on a dirty tree** (unless `--force`), so the review diff is
   the agent's work and not tangled with your own.
 - `gh` and `git` run with fixed argv, never a shell string.
