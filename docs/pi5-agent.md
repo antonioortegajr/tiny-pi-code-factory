@@ -289,7 +289,7 @@ checked after the fact, since opencode edits files itself.
 - **Tool calling may not parse at all** depending on the runtime. `make llm-test`
   stage 4 tells you. If it fails, chat and `opencode` still work.
 
-## Driving it from Telegram
+## Driving it from Telegram(Work In Progress)
 
 `apps/telegram.sh` installs a bridge that runs this agent as a subprocess. It is
 a trigger, not a chat interface: `/work <repo>` runs the queue there, and no
