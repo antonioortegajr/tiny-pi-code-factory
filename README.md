@@ -159,7 +159,7 @@ screen attached to the Pi.
 | `make llm` | fast path to a working local model, skipping the slow apt upgrade |
 | `make llm-test` | prove the local AI works: inference, speed, tool calling |
 | `make doctor` | check the whole chain and say what to fix |
-| `make queue` | work every GitHub issue labelled `agent:queued`, opening draft PRs |
+| `make queue` | work every GitHub issue labelled `agent:queued`, opening PRs |
 | `make queue-timer` | poll GitHub for labelled issues unattended (`ARGS=off` stops) |
 | `make labels` | create the `agent:*` labels in a repo |
 | `make network` | verify the Pi can reach github.com, join Wi-Fi if configured |
@@ -289,7 +289,7 @@ Two, with different appetites for risk.
 
 ### `bin/pi5-agent` — narrow, in this repo
 
-Issues and a checkout, writes only on an `agent/` branch, opens draft PRs, never
+Issues and a checkout, writes only on an `agent/` branch, opens signed PRs, never
 merges or closes. Predictable on a small model because the tool menu is short.
 
 **Full documentation: [docs/pi5-agent.md](docs/pi5-agent.md)** — the spec it
@@ -311,7 +311,7 @@ make labels ARGS=owner/name    # anywhere else
 | Label | Meaning | Colour |
 | --- | --- | --- |
 | `agent:queued` | you want the agent to attempt this | blue |
-| `agent:done` | draft PR opened, awaiting your review | green |
+| `agent:done` | PR opened, awaiting your review | green |
 | `agent:failed` | agent could not do it, no PR | red |
 | `agent:opencode` | add alongside `agent:queued` to route it via opencode | purple |
 
@@ -337,7 +337,7 @@ make queue                        # list what it would work - read-only
 make queue ARGS=--allow-write     # actually work them
 ```
 
-For each labelled issue it branches, edits, commits, opens a **draft PR**, then
+For each labelled issue it branches, edits, commits, opens a **PR**, then
 relabels the issue `agent:done` and comments with the PR link. Failures get
 `agent:failed` and a comment saying no PR was opened. Nothing is merged or
 closed — that stays yours.
@@ -360,7 +360,7 @@ make queue-timer
 ```
 
 Installs `pi5-queue.timer`, which polls every repo under `~/GitHub` for
-`agent:queued` issues. Label an issue, close your laptop, review the draft PR
+`agent:queued` issues. Label an issue, close your laptop, review the PR
 later.
 
 ```sh
@@ -428,7 +428,7 @@ and anything else gets a one-line rejection without the model ever seeing it:
 
 | Message | Does |
 | --- | --- |
-| `/work my-repo` | works the `agent:queued` issues there, opening draft PRs |
+| `/work my-repo` | works the `agent:queued` issues there, opening PRs |
 | `/repos` | which repos it can see |
 | `/status` | is the local model up |
 | `/help` | the above |
@@ -446,7 +446,7 @@ friendlier phrasing does not widen anything: however you word it, you can only
 reach the same four workflows.
 
 So the whole loop is: label an issue `agent:queued`, tell the bot the repo,
-review the draft PR.
+review the PR.
 
 Restricting it this way is not only about safety. Free-form chat with a 4B model
 on a CPU is slow and mediocre, and every message would occupy the board for
@@ -464,7 +464,7 @@ workflow you have already reviewed.
   message cannot name an arbitrary path. Narrow it further with
   `TELEGRAM_REPOS`.
 - **Writes are off by default.** Without `TELEGRAM_ALLOW_WRITE=1`, `/work`
-  reports what it would have done. With it, still draft PRs only.
+  reports what it would have done. With it, PRs are still branch-only and signed.
 
 **Optional passphrase.** With `TELEGRAM_PASSPHRASE` set, every message must
 start with it or the bot replies *"I don't know you."* Short is right — you type
@@ -559,12 +559,12 @@ agent harness. Inference never leaves the Pi.
 
 ```sh
 make llm-test                        # can the model call tools at all?
-pi5-agent --issue 12 --allow-write   # read it, branch, work it, open a draft PR
+pi5-agent --issue 12 --allow-write   # read it, branch, work it, open a PR
 pi5-agent "summarise open issues"    # read-only question
 ```
 
 `--issue 12` seeds the whole workflow: read the issue, find the relevant code,
-branch, edit, commit, open a **draft** PR describing what it changed and what it
+branch, edit, commit, open a PR describing what it changed and what it
 was unsure about. Then it prints the diff command and stops.
 
 ### The containment boundary
@@ -575,7 +575,13 @@ lands anywhere you have to undo**:
 - **Never the default branch.** Every edit requires an `agent/`-prefixed branch
   first; `write_file` refuses until `git_branch` has run, and `git_commit`
   refuses on the default branch.
-- **PRs are always drafts**, and opening one prompts. Nothing merges.
+- **PRs open ready for review**, and opening one prompts. Nothing merges by
+  itself. `AGENT_PR_DRAFT=1` puts drafts back — on a repo without branch
+  protection that flag is the only mechanical brake there is.
+- **Every PR and commit is signed.** The PR body carries `Written by pi5-agent
+  on <host> using <model>`, and the commit gets an `Agent:` trailer so a squash
+  merge keeps the attribution in git history. The harness supplies the model id;
+  it never depends on the model reporting anything about itself.
 - **It never closes issues.** That is explicitly not in the tool list, and a PR
   says `Refs #N`, never `Closes #N` — in the body *and* the commit message — so
   merging cross-links the issue and leaves it open. You review and close.
@@ -590,7 +596,7 @@ lands anywhere you have to undo**:
   the agent's work and not tangled with your own.
 - `gh` and `git` run with fixed argv, never a shell string.
 - File access is confined to the checkout, and `.git/` internals are off limits.
-- Working on **this** repo it may edit its own code — the draft PR is the guard
+- Working on **this** repo it may edit its own code — your review is the guard
   — but it returns to the default branch afterwards, so the next run never
   executes unreviewed code. `AGENT_PROTECTED_PATHS` bans paths outright if you
   want that instead.
@@ -620,7 +626,7 @@ it in two seconds, and catches it regressing after an Ollama update.
 
 A 2B model will get argument names wrong, occasionally rewrite more of a file
 than it needed to, and sometimes stall. `write_file` takes complete file
-contents, so it works best on small files and focused issues. Treat the draft PR
+contents, so it works best on small files and focused issues. Treat the PR
 as a first pass to review, not a finished change — which is the workflow anyway.
 
 ## Out of scope, deliberately

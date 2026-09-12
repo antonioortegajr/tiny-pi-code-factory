@@ -7,11 +7,11 @@ CLIs as its tool layer.
 
   pi5-agent --selftest              can the model call tools at all?
   pi5-agent --queue --allow-write   work every issue labelled agent:queued
-  pi5-agent --issue 12              read issue 12, branch, work it, open a draft PR
+  pi5-agent --issue 12              read issue 12, branch, work it, open a PR
   pi5-agent "summarise open issues" read-only question
 
 The safety boundary is not "read nothing". It is: never touch the default
-branch, never merge, never close. Work lands on an agent/ branch as a draft PR
+branch, never merge, never close. Work lands on an agent/ branch as a PR
 for a human to review.
 """
 
@@ -20,6 +20,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import urllib.error
@@ -36,7 +37,14 @@ MAX_TOOL_CHARS = int(os.environ.get("AGENT_MAX_TOOL_CHARS", "4000"))
 REQUEST_TIMEOUT = int(os.environ.get("AGENT_TIMEOUT", "900"))
 BRANCH_PREFIX = os.environ.get("AGENT_BRANCH_PREFIX", "agent/")
 SELF_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# Empty by default. Work on this repo lands on a branch as a draft PR like any
+# Pull requests open ready for review. They used to be drafts, which was the only
+# mechanical brake on a repo with no branch protection - set AGENT_PR_DRAFT=1 to
+# put that back. What replaced it: the PR only ever says "Refs #N", so merging
+# the wrong thing cannot close the right issue, and every PR and commit is signed
+# with the machine and model that wrote it.
+PR_DRAFT = os.environ.get("AGENT_PR_DRAFT", "0") == "1"
+AGENT_NAME = "pi5-agent"
+# Empty by default. Work on this repo lands on a branch as a PR like any
 # other, and reviewing that PR is the guard - a blanket write ban would also
 # stop you asking the agent to improve its own scripts, which is reasonable.
 # Set it if you want belt and braces.
@@ -146,7 +154,7 @@ class Tools:
         self.assume_yes = assume_yes
         self.branch = None      # set once we switch to an agent branch
         self.touched = set()
-        self.pr_url = ""        # set when a draft PR is actually opened
+        self.pr_url = ""        # set when a PR is actually opened
         self.issue_number = None  # so a PR can close the issue it came from
         self.gave_up = ""       # the model's own reason for stopping, if it said one
 
@@ -380,13 +388,20 @@ class Tools:
                         f"secrets, so nothing was committed:\n{lines}\n"
                         "Remove them, or add the file to .gitignore.")
 
+        # A trailer, not prose: a squash merge keeps the commit message and
+        # discards the PR body, so this is what survives in git history.
+        trailer = (f"Agent: {AGENT_NAME} on {socket.gethostname()} "
+                   f"({model_id()})")
+        if trailer not in message:
+            message = message.rstrip() + "\n\n" + trailer
         out = self._git("commit", "-m", message)
         return out if not out.startswith("error") else out
 
     # -- outward facing: these prompt ---------------------------------------
 
     def gh_pr_create(self, title, body):
-        refusal = self._confirm(f"open a DRAFT pull request titled {title!r}")
+        kind = "DRAFT pull request" if PR_DRAFT else "pull request"
+        refusal = self._confirm(f"open a {kind} titled {title!r}")
         if refusal:
             return refusal
         if not self.branch:
@@ -413,8 +428,11 @@ class Tools:
         if push.startswith("error"):
             return push
         # Draft, always. A human opens it for review; nothing auto-merges.
-        out = self._gh("pr", "create", "--draft", "--title", title, "--body", body,
-                       "--head", self.branch)
+        body = body.rstrip() + f"\n\n---\n{signature()}"
+        args = ["pr", "create", "--title", title, "--body", body, "--head", self.branch]
+        if PR_DRAFT:
+            args.insert(2, "--draft")
+        out = self._gh(*args)
         if not out.startswith("error"):
             for line in out.splitlines():
                 if line.startswith("http"):
@@ -475,7 +493,7 @@ SCHEMA = [
      {"path": {"type": "string"}, "content": {"type": "string"}}, ["path", "content"], True),
     ("git_commit", "Commit everything you have changed.",
      {"message": {"type": "string"}}, ["message"], True),
-    ("gh_pr_create", "Open a DRAFT pull request for a human to review.",
+    ("gh_pr_create", "Open a pull request for a human to review.",
      {"title": {"type": "string"}, "body": {"type": "string"}}, ["title", "body"], True),
     ("gh_issue_comment", "Post a comment on an issue.",
      {"number": {"type": "integer"}, "body": {"type": "string"}}, ["number", "body"], True),
@@ -601,6 +619,25 @@ def resolve_model():
     return _RESOLVED_MODEL
 
 
+def signature():
+    """Who wrote this, on what, with which weights.
+
+    Unreviewed model output that reaches a pull request should say so on its
+    face. The harness knows the model id - it sends it on every request - so the
+    attribution does not depend on the model reporting anything about itself.
+    """
+    return (f"Written by `{AGENT_NAME}` on `{socket.gethostname()}` using "
+            f"`{model_id()}`. Local model output, unreviewed - please read the "
+            "diff.")
+
+
+def model_id():
+    """The model id for attribution. Never fatal, unlike resolve_model: a
+    signature is not worth failing a commit over, and an endpoint that has gone
+    away by now does not change who did the work."""
+    return MODEL or _RESOLVED_MODEL or loaded_model() or "unknown model"
+
+
 def loaded_model():
     try:
         with urllib.request.urlopen(f"{BASE_URL}/models", timeout=10) as r:
@@ -639,8 +676,8 @@ How to work:
    - write_file only for a new or tiny file: it needs the COMPLETE contents,
      which you cannot produce for a large one
 4. git_commit with a clear message.
-5. gh_pr_create as a draft, describing what you changed and what you were unsure
-   about. The issue is linked for you - you do not need to mention it.
+5. gh_pr_create, describing what you changed and what you were unsure about.
+   The issue is linked for you - you do not need to mention it.
 
 Rules:
 - Do not narrate your reasoning. No "Thinking Process:", no commentary on what
@@ -984,8 +1021,7 @@ def work_with_opencode(tools, num, title, body):
 
     We branch before handing over and commit and open the PR afterwards, so the
     containment is unchanged: opencode edits files, but it never chooses the
-    branch, never touches the default branch, and never opens anything but a
-    draft.
+    branch, never touches the default branch, and never opens the PR itself.
     """
     if not shutil.which("opencode"):
         return "opencode is not installed (make app APP=opencode)"
@@ -1029,9 +1065,7 @@ def work_with_opencode(tools, num, title, body):
     if commit.startswith("error"):
         return commit
     return tools.gh_pr_create(
-        f"{title}",
-        f"Refs #{num}.\n\nWritten by the local model via opencode on a "
-        f"Raspberry Pi. Unreviewed - please read the diff.")
+        f"{title}", f"Refs #{num}.\n\nEdited via the opencode harness.")
 
 
 
@@ -1185,7 +1219,7 @@ def queue(args):
 
     probe._git("switch", default)
     print(f"\n{BOLD}{worked} PR(s) opened, {failed} failed, {skipped} skipped{RST}")
-    print("Nothing was merged or closed - review the drafts.")
+    print("Nothing was merged or closed - review the pull requests.")
     return 0
 
 
@@ -1197,7 +1231,7 @@ def main():
     ap.add_argument("--repo", help="owner/name; defaults to the checkout's remote")
     ap.add_argument("-C", "--workdir", default=".")
     ap.add_argument("--allow-write", action="store_true",
-                    help="permit branching, editing, committing and opening a draft PR")
+                    help="permit branching, editing, committing and opening a PR")
     ap.add_argument("--yes", action="store_true", help="skip confirmation for PRs and comments")
     ap.add_argument("--force", action="store_true", help="proceed even with a dirty tree")
     ap.add_argument("--queue", action="store_true",
@@ -1230,7 +1264,7 @@ def main():
         if args.prompt:
             prompt += f"\n\nExtra instruction from the user: {args.prompt}"
         if not args.allow_write:
-            warn("read-only: add --allow-write to let it branch, edit and open a draft PR")
+            warn("read-only: add --allow-write to let it branch, edit and open a PR")
     else:
         prompt = args.prompt
 

@@ -62,7 +62,7 @@ pi5-agent --queue --allow-write      # work every issue labelled agent:queued
 ```
 
 `--issue` seeds the whole workflow: read the issue, find the code, branch, edit,
-commit, open a draft PR, print the review diff, stop.
+commit, open a PR, print the review diff, stop.
 
 ## Tools
 
@@ -125,7 +125,7 @@ want the wider harness tried anyway.
 What it does **not** do is guarantee the stop happens. Nothing enforces the
 call, and a small model's characteristic failure is not stopping — it asserts
 success. This makes an honest stop legible; it does not make a dishonest finish
-impossible. That is what the draft PR is for.
+impossible. That is what your review of the pull request is for.
 
 ### Why so few tools
 
@@ -141,7 +141,12 @@ The boundary is not "read nothing" — it has to write to be useful. It is
 - `write_file` refuses until `git_branch` has run. Every edit is on an `agent/`
   branch.
 - `git_commit` refuses on the default branch.
-- PRs are **always drafts**, and opening one prompts.
+- **PRs open ready for review**, and opening one prompts. Nothing merges.
+  `AGENT_PR_DRAFT=1` restores drafts, which is the only mechanical brake on a
+  repo without branch protection.
+- **Every PR and commit is signed** with the machine and model that wrote it —
+  a `Written by pi5-agent on <host> using <model>` footer, and an `Agent:`
+  trailer on the commit so a squash merge keeps the attribution.
 - **Closing issues is not a tool.** Review and close are yours. A PR says
   `Refs #N`, never `Closes #N` — in the body *or* the commit message — so
   merging cross-links the issue and leaves it open.
@@ -189,9 +194,9 @@ by patch. That is the difference between "works on small files" and "works on
 real ones".
 
 The guard rails do not change: this agent creates the branch before handing
-over, and commits and opens the draft PR afterwards. opencode edits files; it
+over, and commits and opens the PR afterwards. opencode edits files; it
 never picks the branch, never touches the default branch, and never opens
-anything but a draft.
+the pull request itself.
 
 Rule of thumb: default loop for one-line and single-file changes, `agent:opencode`
 for anything touching a larger file or more than one.
@@ -219,6 +224,7 @@ now means both approaches were tried.
 | `AGENT_TOOL_MODE` | `auto` | `native`, `text`, or `auto` (probe then fall back) |
 | `AGENT_BRANCH_PREFIX` | `agent/` | branch namespace |
 | `AGENT_LABEL` | `agent:queued` | queue trigger |
+| `AGENT_PR_DRAFT` | `0` | `1` opens pull requests as drafts again |
 
 ## Speed
 
@@ -298,7 +304,7 @@ and does not depend on this running.
 
 The agent can be pointed at `my-pi5-setup`, so it can edit its own code. That is
 allowed, because the guard is the same one as everywhere else: the work lands on
-an `agent/` branch as a draft PR, and nothing reaches `main` without you merging
+an `agent/` branch as a pull request, and nothing reaches `main` without you merging
 it. Banning it outright would also stop you asking the agent to improve its own
 scripts, which is a reasonable thing to want.
 
@@ -334,7 +340,7 @@ checked after the fact, since opencode edits files itself.
 
 `apps/telegram.sh` installs a bridge that runs this agent as a subprocess. It is
 a trigger, not a chat interface: `/work <repo>` runs the queue there, and no
-message reaches the model as free text. Same rails - draft PRs only, writes
+message reaches the model as free text. Same rails - signed PRs, writes
 behind `TELEGRAM_ALLOW_WRITE=1`. See the README for setup.
 
 ## Writing issues it can actually do
