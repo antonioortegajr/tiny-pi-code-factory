@@ -922,145 +922,151 @@ def dispatch(tools, name, args, turn, mode, seen=None):
     return result
 
 
-def agent_loop(prompt, tools, include_write):
-    system = SYSTEM
-    name, extra, truncated = repo_instructions(tools.workdir)
-    if extra:
-        system += f"\n\n--- Project instructions from {name} ---\n{extra}"
-        note = f"{DIM}  using {name}"
-        note += f" (truncated to {AGENTS_MD_MAX} chars){RST}" if truncated else RST
-        print(note)
+def settle(tools):
+    """Leave the checkout the way we found it, however the run ended.
 
-    specs = tool_specs(include_write)
-    mode = TOOL_MODE if TOOL_MODE in ("native", "text") else "auto"
+    This has to run on every exit path, not just the tidy one. It lived inline
+    at the end of agent_loop, which meant die() - a model timeout, an endpoint
+    that went away - raised SystemExit straight past it, leaving an agent branch
+    checked out with uncommitted edits in it. That is exactly the state that
+    wedges the queue: every later cycle sees a dirty tree and skips every issue.
+    So it is called from a finally, and again by the queue after each issue.
+    """
+    if not tools.branch:
+        return
+    default = tools.default_branch()
 
-    if mode == "text":
-        system += "\n" + tools_as_text(specs)
+    # Committing on the agent branch keeps the attempt reviewable and hands the
+    # default branch back clean.
+    dirty = tools._git("status", "--porcelain")
+    if dirty and not dirty.startswith("error"):
+        warn("run ended with uncommitted changes; committing them on the branch")
+        out = tools.git_commit(
+            "wip: unfinished agent run\n\n"
+            "The run stopped before committing. Kept so the attempt is "
+            "reviewable; no pull request was opened.")
+        if out.startswith(("error", "refused")):
+            # Only reached when the secret scan refuses, or git fails.
+            # Discarding the edits loses the attempt; leaving them wedges every
+            # later run. The branch still records that it happened.
+            warn(f"could not commit: {out.splitlines()[0]}")
+            warn("discarding the changes so the queue is not left wedged")
+            tools._git("reset", "--hard")
+            tools._git("clean", "-fd")
 
-    messages = [{"role": "system", "content": system},
-                {"role": "user", "content": prompt}]
-    used_a_tool = False
-    nudges = 0
-    # Small models get stuck re-reading the same file. The turn limit bounds it,
-    # but 20 identical calls is half an hour of this board achieving nothing.
-    seen_calls = {}
-
-    for turn in range(1, MAX_TURNS + 1):
-        msg = chat(messages, specs if mode != "text" else None)
-        calls = msg.get("tool_calls") or []
-        content = msg.get("content") or ""
-
-        # A model whose runtime cannot emit tool_calls is not broken, it just
-        # needs asking differently. Probe once, then commit to the protocol
-        # that works for the rest of the run.
-        if mode == "auto":
-            if calls:
-                mode = "native"
-            else:
-                mode = "text"
-                print(f"{DIM}  no native tool_calls; using the text protocol{RST}")
-                messages[0]["content"] = system + "\n" + tools_as_text(specs)
-                # If it already answered in the text format, keep that call
-                # rather than paying for another round - inference is slow here.
-                if not parse_text_call(content):
-                    continue
-
-        if max(seen_calls.values(), default=0) >= 5:
-            warn("the model is repeating the same call; stopping early")
-            break
-
-        if mode == "native" and calls:
-            used_a_tool = True
-            messages.append(msg)
-            for call in calls:
-                fname = call["function"]["name"]
-                try:
-                    fargs = json.loads(call["function"].get("arguments") or "{}")
-                except json.JSONDecodeError:
-                    fargs = None
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": call.get("id", fname),
-                    "content": dispatch(tools, fname, fargs, turn, mode, seen_calls),
-                })
-            if tools.gave_up:
-                break
-            continue
-
-        if mode == "text":
-            parsed = parse_text_call(content)
-            if parsed:
-                used_a_tool = True
-                fname, fargs = parsed
-                result = dispatch(tools, fname, fargs, turn, mode, seen_calls)
-                messages.append({"role": "assistant", "content": content})
-                # No role:"tool" in this mode - the result comes back as user text.
-                messages.append({"role": "user", "content": f"TOOL RESULT:\n{result}"})
-                if tools.gave_up:
-                    break
-                continue
-
-        # A small model often answers "I will add that line" without calling
-        # anything. Treating that as a finished job is how an issue gets marked
-        # failed with no branch and no explanation.
-        if include_write and (not used_a_tool or not content.strip()) and nudges < 2:
-            nudges += 1
-            print(f"{DIM}  no tool used yet; asking it to act (nudge {nudges}/2){RST}")
-            messages.append({"role": "assistant", "content": content})
-            messages.append({"role": "user", "content":
-                "You have not finished. Do not describe what you would do - do "
-                "it. Reply with a single tool call now. To add a line to the "
-                "end of a file use append_file; to change part of one use "
-                "replace_in_file. Do not use write_file on a large file."})
-            continue
-
-        print("\n" + (content or "(no answer)").strip())
-        break
-    else:
-        warn(f"gave up after {MAX_TURNS} turns")
-
-    if tools.gave_up:
-        warn(f"the model stopped: {tools.gave_up}")
-
-    if tools.branch:
-        default = tools.default_branch()
-
-        # Never hand back a dirty checkout.
-        #
-        # A run that stopped mid-edit used to leave its changes in the worktree.
-        # Switching back to the default branch carried them along, and the
-        # queue's dirty guard then skipped every later issue, every cycle,
-        # silently - one unfinishable ticket stopped the whole pipeline for
-        # hours with nothing on GitHub to say so.
-        #
-        # Committing on the agent branch keeps the attempt reviewable and hands
-        # the default branch back clean.
-        dirty = tools._git("status", "--porcelain")
-        if dirty and not dirty.startswith("error"):
-            warn("run ended with uncommitted changes; committing them on the branch")
-            out = tools.git_commit(
-                "wip: unfinished agent run\n\n"
-                "The run stopped before committing. Kept so the attempt is "
-                "reviewable; no pull request was opened.")
-            if out.startswith(("error", "refused")):
-                # Only reached when the secret scan refuses, or git fails.
-                # Discarding the edits loses the attempt; leaving them wedges
-                # every later run. The branch still records that it happened.
-                warn(f"could not commit: {out.splitlines()[0]}")
-                warn("discarding the changes so the queue is not left wedged")
-                tools._git("reset", "--hard")
-                tools._git("clean", "-fd")
-
+    if tools.current_branch() != default:
         print(f"\n{BOLD}Review it:{RST}")
         print(f"  git -C {tools.workdir} diff {default}...{tools.branch}")
         print(f"  gh pr view --web")
         print(f"\nNothing was merged or closed. That is your call.")
-
-        # Always back to the default branch, not only in this repo. Leaving an
-        # agent branch checked out is how the next run inherits the last one's
-        # state - and here it would also mean executing an unreviewed pi5-agent.
         tools._git("switch", default)
         print(f"{DIM}  back on {default}; to inspect:  git switch {tools.branch}{RST}")
+
+
+def agent_loop(prompt, tools, include_write):
+    try:
+        system = SYSTEM
+        name, extra, truncated = repo_instructions(tools.workdir)
+        if extra:
+            system += f"\n\n--- Project instructions from {name} ---\n{extra}"
+            note = f"{DIM}  using {name}"
+            note += f" (truncated to {AGENTS_MD_MAX} chars){RST}" if truncated else RST
+            print(note)
+
+        specs = tool_specs(include_write)
+        mode = TOOL_MODE if TOOL_MODE in ("native", "text") else "auto"
+
+        if mode == "text":
+            system += "\n" + tools_as_text(specs)
+
+        messages = [{"role": "system", "content": system},
+                    {"role": "user", "content": prompt}]
+        used_a_tool = False
+        nudges = 0
+        # Small models get stuck re-reading the same file. The turn limit bounds it,
+        # but 20 identical calls is half an hour of this board achieving nothing.
+        seen_calls = {}
+
+        for turn in range(1, MAX_TURNS + 1):
+            msg = chat(messages, specs if mode != "text" else None)
+            calls = msg.get("tool_calls") or []
+            content = msg.get("content") or ""
+
+            # A model whose runtime cannot emit tool_calls is not broken, it just
+            # needs asking differently. Probe once, then commit to the protocol
+            # that works for the rest of the run.
+            if mode == "auto":
+                if calls:
+                    mode = "native"
+                else:
+                    mode = "text"
+                    print(f"{DIM}  no native tool_calls; using the text protocol{RST}")
+                    messages[0]["content"] = system + "\n" + tools_as_text(specs)
+                    # If it already answered in the text format, keep that call
+                    # rather than paying for another round - inference is slow here.
+                    if not parse_text_call(content):
+                        continue
+
+            if max(seen_calls.values(), default=0) >= 5:
+                warn("the model is repeating the same call; stopping early")
+                break
+
+            if mode == "native" and calls:
+                used_a_tool = True
+                messages.append(msg)
+                for call in calls:
+                    fname = call["function"]["name"]
+                    try:
+                        fargs = json.loads(call["function"].get("arguments") or "{}")
+                    except json.JSONDecodeError:
+                        fargs = None
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": call.get("id", fname),
+                        "content": dispatch(tools, fname, fargs, turn, mode, seen_calls),
+                    })
+                if tools.gave_up:
+                    break
+                continue
+
+            if mode == "text":
+                parsed = parse_text_call(content)
+                if parsed:
+                    used_a_tool = True
+                    fname, fargs = parsed
+                    result = dispatch(tools, fname, fargs, turn, mode, seen_calls)
+                    messages.append({"role": "assistant", "content": content})
+                    # No role:"tool" in this mode - the result comes back as user text.
+                    messages.append({"role": "user", "content": f"TOOL RESULT:\n{result}"})
+                    if tools.gave_up:
+                        break
+                    continue
+
+            # A small model often answers "I will add that line" without calling
+            # anything. Treating that as a finished job is how an issue gets marked
+            # failed with no branch and no explanation.
+            if include_write and (not used_a_tool or not content.strip()) and nudges < 2:
+                nudges += 1
+                print(f"{DIM}  no tool used yet; asking it to act (nudge {nudges}/2){RST}")
+                messages.append({"role": "assistant", "content": content})
+                messages.append({"role": "user", "content":
+                    "You have not finished. Do not describe what you would do - do "
+                    "it. Reply with a single tool call now. To add a line to the "
+                    "end of a file use append_file; to change part of one use "
+                    "replace_in_file. Do not use write_file on a large file."})
+                continue
+
+            print("\n" + (content or "(no answer)").strip())
+            break
+        else:
+            warn(f"gave up after {MAX_TURNS} turns")
+
+        if tools.gave_up:
+            warn(f"the model stopped: {tools.gave_up}")
+
+    finally:
+        # Every exit path, including die()'s SystemExit and a Ctrl-C.
+        settle(tools)
     return 0
 
 
@@ -1210,6 +1216,10 @@ def queue(args):
         except Exception as exc:                      # noqa: BLE001
             warn(f"#{num} raised: {exc}")
 
+        # opencode edits files itself and can time out mid-change, so its
+        # leftovers need the same treatment as the built-in loop's.
+        settle(tools)
+
         # Kept before the escalation replaces `tools`, since the reason has to
         # outlive the object that recorded it.
         gave_up = tools.gave_up
@@ -1242,6 +1252,7 @@ def queue(args):
                 return 130
             except Exception as exc:                  # noqa: BLE001
                 warn(f"#{num}: opencode raised: {exc}")
+            settle(tools)
 
         if tools.pr_url:
             tools._gh("issue", "edit", str(num),
