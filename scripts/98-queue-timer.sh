@@ -42,8 +42,29 @@ chmod +x "$REPO_ROOT/bin/pi5-queue-all" 2>/dev/null || true
 
 # Telegram credentials, if the bridge is installed, so a finished run can say so.
 env_files="/etc/my-pi5-setup/queue.env"
+
+# systemd does not read a login profile, so the service gets a bare PATH and
+# anything installed under $HOME is invisible to it. opencode installs to
+# ~/.opencode/bin, so the queue's escalation - try opencode when the built-in
+# loop opens no PR - was silently skipped on every failure: shutil.which found
+# nothing and the escalation branch never ran. Resolve it as the user, once, at
+# install time, and put its directory on the service's PATH.
+service_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+opencode_bin="$(as_user bash -lc 'command -v opencode' 2>/dev/null || true)"
+if [ -n "$opencode_bin" ]; then
+	opencode_dir="$(dirname "$opencode_bin")"
+	case ":$service_path:" in
+		*":$opencode_dir:"*) ;;
+		*) service_path="$opencode_dir:$service_path" ;;
+	esac
+	log "opencode: $opencode_bin"
+else
+	warn "opencode not found; the queue will not escalate a failed issue"
+fi
+
 {
 	printf '# Managed by my-pi5-setup (scripts/98-queue-timer.sh)\n'
+	printf 'PATH=%s\n' "$service_path"
 	printf 'GITHUB_DIR=%s\n' "$GITHUB_DIR"
 	printf 'QUEUE_REPOS=%s\n' "${QUEUE_REPOS:-}"
 	printf 'QUEUE_DISCOVER=%s\n' "${QUEUE_DISCOVER:-0}"

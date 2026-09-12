@@ -230,7 +230,15 @@ for anything touching a larger file or more than one.
 
 **It also escalates on its own.** If the built-in loop produces no PR, the queue
 resets the checkout and tries opencode before marking the issue failed
-(`AGENT_ESCALATE=0` to stop that). This is a second approach rather than a
+(`AGENT_ESCALATE=0` to stop that).
+
+Under the timer this needs `opencode` on the **service's** PATH, not yours.
+systemd does not read a login profile, so a binary in `~/.opencode/bin` is
+invisible to it and `shutil.which` finds nothing — the escalation is then skipped
+on every failure, silently. `make queue-timer` resolves opencode as your user at
+install time and writes its directory into `queue.env`; re-run it after
+installing or moving opencode. When it is missing the failure comment on the
+issue says so rather than leaving you to wonder. This is a second approach rather than a
 retry: the built-in loop's characteristic failure is a whole-file rewrite it
 cannot produce, which is precisely what patch-based editing avoids.
 

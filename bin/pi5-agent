@@ -160,6 +160,7 @@ class Tools:
         self.pr_url = ""        # set when a PR is actually opened
         self.issue_number = None  # so a PR can close the issue it came from
         self.gave_up = ""       # the model's own reason for stopping, if it said one
+        self.tools_used = 0     # so a failure can say what happened, not guess
 
     # -- helpers -----------------------------------------------------------
 
@@ -911,6 +912,7 @@ def dispatch(tools, name, args, turn, mode, seen=None):
                     f"different tool, or give your final answer.")
 
     print(f"{DIM}  [{turn}] {name}({shown}){RST}")
+    tools.tools_used += 1
     try:
         result = fn(**args)
     except TypeError as exc:
@@ -1265,11 +1267,22 @@ def queue(args):
                         "re-label `agent:queued`, or add `agent:opencode` to send "
                         "it to the wider harness anyway.")
             else:
-                reason = ("It answered in prose without ever calling a tool"
-                          if not tools.branch else
-                          "It started work on a branch but opened no pull request")
+                # Say what happened. This used to infer the reason from
+                # whether a branch existed, and told issue #9 that the model
+                # "never called a tool" after it had called four.
+                if not tools.tools_used:
+                    reason = "It answered in prose without ever calling a tool"
+                elif not tools.branch:
+                    reason = (f"It called {tools.tools_used} tool(s) but never "
+                              "created a branch, so nothing was written")
+                else:
+                    reason = (f"It called {tools.tools_used} tool(s) and worked on "
+                              "a branch, but opened no pull request")
                 if escalated:
                     reason += ", and opencode did not manage it either"
+                elif ESCALATE and LABEL_OPENCODE not in labels:
+                    reason += ("; opencode was not tried because it is not on "
+                               "this service's PATH")
                 body = (f"The local agent did not finish this one. {reason}. "
                         "No pull request was opened.\n\n"
                         "Re-label `agent:queued` to try again.")
