@@ -629,6 +629,12 @@ than it needed to, and sometimes stall. `write_file` takes complete file
 contents, so it works best on small files and focused issues. Treat the PR
 as a first pass to review, not a finished change — which is the workflow anyway.
 
+`read_file` pages rather than returning whole files: the result says which lines
+you got and how to fetch the next ones, and `offset` takes a line number from
+`search_files`. Without that, anything past the first few thousand characters of
+a file is unreachable no matter how good the model is —
+[details](docs/pi5-agent.md#reading-a-file-that-does-not-fit).
+
 ## Out of scope, deliberately
 
 **Agent memory or learning.** The SSD makes storage trivial, so it is tempting.

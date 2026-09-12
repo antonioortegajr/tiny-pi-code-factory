@@ -69,11 +69,38 @@ commit, open a PR, print the review diff, stop.
 | Tool | Needs `--allow-write` |
 | --- | --- |
 | `gh_issue_list`, `gh_issue_view` | no |
-| `list_files`, `read_file`, `search_files` | no |
+| `list_files`, `read_file` (paged), `search_files` | no |
 | `git_diff` | no |
 | `cannot_complete` | no |
 | `git_branch`, `append_file`, `replace_in_file`, `write_file`, `git_commit` | yes |
 | `gh_pr_create`, `gh_issue_comment` | yes, and prompts |
+
+### Reading a file that does not fit
+
+`read_file` returns a page, not a file:
+
+```
+[README.md lines 780-786 of 786]
+state/            gitignored: detection results and backups
+...
+[12 more lines. Read them with read_file(path="README.md", offset=787), or use
+search_files to jump straight to the line you need.]
+```
+
+Whole-file reads were a dead end. Every tool result is cut at
+`AGENT_MAX_TOOL_CHARS`, so a 32 KB README arrived as its first 12% with no way
+to reach the rest, and an issue about its **last** lines was unachievable by any
+model: `search_files` would report line 783, `read_file` would hand back line 1
+onwards, and the loop re-read the same head until the repeat guard stopped it.
+
+`offset` is what closes that loop — grep gives the line number, `offset` goes
+there. The page is trimmed to fit the result budget before the footer is added,
+so the instruction for getting the next page is never the part that gets cut.
+
+The text itself carries **no line-number prefixes**, deliberately.
+`replace_in_file` needs the old string verbatim, and a model that copies
+`783: foo` back into it produces a match that exists nowhere. Line numbers come
+from `search_files`; exact text comes from here.
 
 ### Editing without rewriting
 
@@ -218,6 +245,7 @@ now means both approaches were tried.
 | `AGENT_MODEL_ID` | *(whatever is loaded)* | pin a specific model |
 | `AGENT_MAX_TURNS` | `20` | tool-call rounds before giving up |
 | `AGENT_MAX_TOOL_CHARS` | `4000` | truncation per tool result |
+| `AGENT_READ_LINES` | `200` | lines per `read_file` page |
 | `AGENT_TIMEOUT` | `900` | seconds to wait for a reply |
 | `AGENT_INSTRUCTIONS_MAX_CHARS` | `3000` | truncation for AGENTS.md |
 | `AGENT_SHOW_THINKING` | `0` | `1` keeps a reasoning model's narration |

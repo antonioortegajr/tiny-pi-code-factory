@@ -32,6 +32,9 @@ BASE_URL = os.environ.get("AGENT_BASE_URL", "http://127.0.0.1:11434/v1")
 MODEL = os.environ.get("AGENT_MODEL_ID", "")
 MAX_TURNS = int(os.environ.get("AGENT_MAX_TURNS", "20"))
 MAX_TOOL_CHARS = int(os.environ.get("AGENT_MAX_TOOL_CHARS", "4000"))
+# Lines per read_file page. The page is also capped by MAX_TOOL_CHARS, so this
+# only matters for files with short lines.
+READ_LINES = int(os.environ.get("AGENT_READ_LINES", "200"))
 # Generous: a reasoning model on a CPU produces a few tokens a second, and the
 # first request also waits for the weights to load from the SSD.
 REQUEST_TIMEOUT = int(os.environ.get("AGENT_TIMEOUT", "900"))
@@ -227,7 +230,25 @@ class Tools:
         names = sorted(n for n in os.listdir(full) if n != ".git")
         return "\n".join(names) or "(empty)"
 
-    def read_file(self, path):
+    def read_file(self, path, offset=1, limit=None):
+        """Read a page of a file, not all of it.
+
+        Returning the whole file was a dead end on anything real. Every tool
+        result is cut at AGENT_MAX_TOOL_CHARS, so a 32 KB README arrived as its
+        first 12% with no way to see the rest - and an issue about its last
+        lines became unachievable: search_files would report line 783, then
+        read_file would hand back line 1 onwards, forever. The model re-read the
+        same head until the repeat guard stopped it.
+
+        So: line-addressed pages, a header saying which lines these are, and a
+        footer saying how to get the next ones. The page is trimmed to fit the
+        result budget, so the footer is never the part that gets cut off.
+
+        No line-number prefixes on the text itself, deliberately. replace_in_file
+        needs the old text verbatim, and a model that copies "783: foo" back
+        into it produces a match that does not exist. search_files is where line
+        numbers come from; this is where the exact text does.
+        """
         full = self._safe_path(path)
         if not full:
             return "error: path is outside the working directory"
@@ -235,9 +256,42 @@ class Tools:
             return f"error: no such file: {path}"
         try:
             with open(full, encoding="utf-8", errors="replace") as fh:
-                return fh.read()
+                lines = fh.read().splitlines(keepends=True)
         except OSError as exc:
             return f"error: {exc}"
+
+        total = len(lines)
+        if total == 0:
+            return f"({path} is empty)"
+        try:
+            start = max(1, int(offset))
+            want = int(limit) if limit else READ_LINES
+        except (TypeError, ValueError):
+            return "error: offset and limit must be whole numbers"
+        if start > total:
+            return (f"error: {path} has {total} lines; offset {start} is past "
+                    f"the end. Use search_files to find the line you want.")
+
+        # Fit the page to the result budget, leaving room for the notices. A
+        # page trimmed here is honest about it in the footer, unlike the blanket
+        # truncation in dispatch().
+        budget = MAX_TOOL_CHARS - 300
+        page, used = [], 0
+        for line in lines[start - 1:start - 1 + max(1, want)]:
+            if page and used + len(line) > budget:
+                break
+            page.append(line)
+            used += len(line)
+        end = start - 1 + len(page)
+
+        head = f"[{path} lines {start}-{end} of {total}]\n"
+        body = "".join(page)
+        if end >= total:
+            return head + body
+        return (head + body +
+                f"\n[{total - end} more lines. Read them with "
+                f"read_file(path=\"{path}\", offset={end + 1}), or use "
+                f"search_files to jump straight to the line you need.]")
 
     def search_files(self, pattern, path="."):
         full = self._safe_path(path)
@@ -474,8 +528,14 @@ SCHEMA = [
      {"number": {"type": "integer"}}, ["number"], False),
     ("list_files", "List files in a directory of the checkout.",
      {"path": {"type": "string", "description": "Relative to the repo root."}}, [], False),
-    ("read_file", "Read a file from the checkout.",
-     {"path": {"type": "string"}}, ["path"], False),
+    ("read_file", "Read a file from the checkout. Long files come back one page "
+                  "at a time; the result says which lines you got and how to "
+                  "read the next ones. Use offset to jump to a line that "
+                  "search_files found.",
+     {"path": {"type": "string"},
+      "offset": {"type": "integer", "description": "First line to read, 1-based."},
+      "limit": {"type": "integer", "description": "How many lines. Default 200."}},
+     ["path"], False),
     ("search_files", "Search the checkout for a string. Use this to find where something lives.",
      {"pattern": {"type": "string"}, "path": {"type": "string"}}, ["pattern"], False),
     ("git_diff", "Show the uncommitted changes you have made so far.", {}, [], False),
