@@ -174,9 +174,10 @@ The boundary is not "read nothing" — it has to write to be useful. It is
 - **Every PR and commit is signed** with the machine and model that wrote it —
   a `Written by pi5-agent on <host> using <model>` footer, and an `Agent:`
   trailer on the commit so a squash merge keeps the attribution.
-- **Closing issues is not a tool.** Review and close are yours. A PR says
-  `Refs #N`, never `Closes #N` — in the body *or* the commit message — so
-  merging cross-links the issue and leaves it open.
+- **Closing issues is not a tool.** The agent cannot close one; merging its PR
+  can, via a `Closes #N` the harness adds rather than trusting the model to
+  write. `AGENT_PR_CLOSES=0` downgrades it to `Refs #N` — no close on merge —
+  which is the safer setting while you still expect the model to drift.
 - **The branch name comes from the issue number**, not the model. `agent/issue-N`
   is the queue's only idempotence key.
 - **A run never hands back a dirty checkout.** Unfinished edits are committed on
@@ -261,6 +262,7 @@ now means both approaches were tried.
 | `AGENT_BRANCH_PREFIX` | `agent/` | branch namespace |
 | `AGENT_LABEL` | `agent:queued` | queue trigger |
 | `AGENT_PR_DRAFT` | `0` | `1` opens pull requests as drafts again |
+| `AGENT_PR_CLOSES` | `1` | `0` links with `Refs #N` so merging does not close |
 
 ## Speed
 

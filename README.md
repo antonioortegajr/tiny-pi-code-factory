@@ -582,9 +582,13 @@ lands anywhere you have to undo**:
   on <host> using <model>`, and the commit gets an `Agent:` trailer so a squash
   merge keeps the attribution in git history. The harness supplies the model id;
   it never depends on the model reporting anything about itself.
-- **It never closes issues.** That is explicitly not in the tool list, and a PR
-  says `Refs #N`, never `Closes #N` — in the body *and* the commit message — so
-  merging cross-links the issue and leaves it open. You review and close.
+- **Closing an issue is not a tool.** The agent cannot close anything; what it
+  can do is link the PR to its issue with `Closes #N`, so *merging* closes it —
+  the harness adds the keyword, since a model that writes "addresses #9" or a
+  bare `#9` produces a link that does nothing. `AGENT_PR_CLOSES=0` downgrades
+  that to `Refs #N` and keeps closing in your hands, which is worth doing while
+  a harness is new: a drifting model here once opened a PR redoing a different,
+  already-merged ticket, and the stamped keyword closed the wrong issue.
 - **The branch name comes from the issue number**, not the model. `agent/issue-N`
   is the queue's only idempotence key; a model asked for #3 has named its branch
   after #1 more than once.

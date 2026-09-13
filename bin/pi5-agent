@@ -42,10 +42,14 @@ BRANCH_PREFIX = os.environ.get("AGENT_BRANCH_PREFIX", "agent/")
 SELF_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Pull requests open ready for review. They used to be drafts, which was the only
 # mechanical brake on a repo with no branch protection - set AGENT_PR_DRAFT=1 to
-# put that back. What replaced it: the PR only ever says "Refs #N", so merging
-# the wrong thing cannot close the right issue, and every PR and commit is signed
-# with the machine and model that wrote it.
+# put that back. What stands in its place: every PR and commit is signed with the
+# machine and model that wrote it, and a PR opens ready for review, so the diff
+# is in front of you before anything merges.
 PR_DRAFT = os.environ.get("AGENT_PR_DRAFT", "0") == "1"
+# Merging the PR closes its issue. AGENT_PR_CLOSES=0 downgrades the link to
+# "Refs #N", which cross-links and closes nothing - worth doing while a harness
+# is new enough that a PR may not be about the issue it claims.
+PR_CLOSES = os.environ.get("AGENT_PR_CLOSES", "1") == "1"
 AGENT_NAME = "pi5-agent"
 # Empty by default. Work on this repo lands on a branch as a PR like any
 # other, and reviewing that PR is the guard - a blanket write ban would also
@@ -469,23 +473,31 @@ class Tools:
         if not self.branch:
             return "refused: no agent branch to open a PR from."
 
-        # Link the PR to its issue, but do NOT let it close it.
+        # Link the PR to its issue, and by default let merging close it.
         #
-        # This used to append "Closes #N" so a merge would tidy up. Nothing
-        # checks that the diff has anything to do with the issue, and a drifting
-        # model produced a PR that redid a different, already-merged ticket -
-        # carrying "Closes #3" onto work that had nothing to do with #3.
-        # Merging it would have closed the wrong issue and looked like success.
+        # The keyword cannot depend on the model remembering to write one -
+        # GitHub only closes on close/fixes/resolves, and "addresses #9" or a
+        # bare "#9" look like a link while doing nothing. So the harness ensures
+        # exactly one, whichever way it is configured.
         #
-        # "Refs #N" cross-links both ways and closes nothing. Closing stays a
-        # human act, like merging and reviewing.
+        # The risk this carries is real and was seen here: a drifting model
+        # opened a PR that redid a different, already-merged ticket, and the
+        # stamped keyword closed the wrong issue on merge. AGENT_PR_CLOSES=0
+        # downgrades every link to "Refs #N" if you want closing back in human
+        # hands. What keeps the default honest is that the PR is signed and
+        # opens ready for review - you see the diff before it merges.
         if self.issue_number:
+            num = self.issue_number
             closing = re.compile(
-                r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)(\s+#%d\b)"
-                % self.issue_number, re.I)
-            body = closing.sub(r"Refs\1", body or "")
-            if f"#{self.issue_number}" not in body:
-                body = body.rstrip() + f"\n\nRefs #{self.issue_number}"
+                r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)(\s+#%d\b)" % num,
+                re.I)
+            if PR_CLOSES:
+                if not closing.search(body or ""):
+                    body = (body or "").rstrip() + f"\n\nCloses #{num}"
+            else:
+                body = closing.sub(r"Refs\1", body or "")
+                if f"#{num}" not in body:
+                    body = body.rstrip() + f"\n\nRefs #{num}"
         push = self._git("push", "-u", "origin", self.branch)
         if push.startswith("error"):
             return push
@@ -1273,8 +1285,8 @@ def queue(args):
                       "--body", f"Draft PR opened by the local agent{via}: "
                                 f"{tools.pr_url}\n\n"
                                 f"Model output is unreviewed. Please read the diff. "
-                                f"It links here but will not close this issue on "
-                                f"merge - closing is yours.")
+                                f"Merging it closes this issue "
+                                f"(AGENT_PR_CLOSES=0 to change that).")
             print(f"{GRN}#{num} -> {tools.pr_url}{RST}")
             worked += 1
         else:
