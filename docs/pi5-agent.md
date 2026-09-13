@@ -80,9 +80,9 @@ Keep it to things true of every repo on the machine:
 - Never edit lockfiles, CI config, or anything under .github/.
 ```
 
-**It does not reach opencode.** An escalated run reads the project's `AGENTS.md`
-and opencode's own global config, not this file. Rules you rely on for both
-harnesses belong in the repo file, or in `~/.config/opencode/` as well.
+**opencode gets it too.** It does not read this file - it reads the project's
+`AGENTS.md` and its own global config - so an escalated run has the contents
+passed to it in the prompt instead. One file, both harnesses.
 
 ## Modes
 

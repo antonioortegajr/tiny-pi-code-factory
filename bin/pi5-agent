@@ -1163,9 +1163,14 @@ def work_with_opencode(tools, num, title, body):
     if out.startswith("error") or out.startswith("refused"):
         return out
 
+    # opencode reads the project's AGENTS.md itself, but not our machine-level
+    # file - so pass its contents in the prompt. Same rules, both harnesses.
+    gname, gtext, _ = global_instructions()
+    machine = f"\n\nMachine instructions (from {gname}):\n{gtext}" if gtext else ""
+
     prompt = (f"Work GitHub issue #{num}: {title}\n\n{body}\n\n"
               "Make the smallest change that addresses this. Do not commit or "
-              "push - that is handled for you.")
+              "push - that is handled for you." + machine)
 
     print(f"{DIM}  handing #{num} to opencode…{RST}")
     try:
