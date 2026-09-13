@@ -52,6 +52,38 @@ It is **truncated to 3000 characters** (`AGENT_INSTRUCTIONS_MAX_CHARS`). Context
 is the scarce resource here; instructions that crowd out tool results make the
 agent worse, not better. Keep it to build commands, conventions and gotchas.
 
+### Instructions for every repo
+
+A per-repo file cannot say *"you are running unattended on a Pi, never touch
+lockfiles"* without that being copied into every checkout and drifting. So there
+is a machine-level file too, read from the first of:
+
+```
+$AGENT_GLOBAL_INSTRUCTIONS
+~/.config/pi5-agent/AGENTS.md
+/etc/my-pi5-setup/AGENTS.md
+```
+
+It is prepended, and the repo's own file comes after it — so where the two
+disagree, the nearer file is the one the model reads last and follows. Its cap
+is smaller on purpose (1200 chars, `AGENT_GLOBAL_INSTRUCTIONS_MAX_CHARS`): the
+repo file knows the build command and the layout, and the two share one 8K
+context. Both files are named in the run output, so you can see what the model
+actually got.
+
+Keep it to things true of every repo on the machine:
+
+```markdown
+- You are running unattended on a Raspberry Pi. Nothing interactive.
+- Make the smallest change that addresses the issue. Do not refactor around it.
+- If the issue needs a fact you have no tool to obtain, call cannot_complete.
+- Never edit lockfiles, CI config, or anything under .github/.
+```
+
+**It does not reach opencode.** An escalated run reads the project's `AGENTS.md`
+and opencode's own global config, not this file. Rules you rely on for both
+harnesses belong in the repo file, or in `~/.config/opencode/` as well.
+
 ## Modes
 
 ```sh
@@ -256,7 +288,9 @@ now means both approaches were tried.
 | `AGENT_MAX_TOOL_CHARS` | `4000` | truncation per tool result |
 | `AGENT_READ_LINES` | `200` | lines per `read_file` page |
 | `AGENT_TIMEOUT` | `900` | seconds to wait for a reply |
-| `AGENT_INSTRUCTIONS_MAX_CHARS` | `3000` | truncation for AGENTS.md |
+| `AGENT_INSTRUCTIONS_MAX_CHARS` | `3000` | truncation for the repo's AGENTS.md |
+| `AGENT_GLOBAL_INSTRUCTIONS` | *(see above)* | machine-level instructions file |
+| `AGENT_GLOBAL_INSTRUCTIONS_MAX_CHARS` | `1200` | truncation for that file |
 | `AGENT_SHOW_THINKING` | `0` | `1` keeps a reasoning model's narration |
 | `AGENT_TOOL_MODE` | `auto` | `native`, `text`, or `auto` (probe then fall back) |
 | `AGENT_BRANCH_PREFIX` | `agent/` | branch namespace |

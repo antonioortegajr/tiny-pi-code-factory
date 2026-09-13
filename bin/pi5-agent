@@ -92,6 +92,12 @@ def scan_for_secrets(diff):
 # cross-tool convention (opencode reads it too), so one file steers both agents.
 # Bounded, because context here is 8K and the tool results have to fit in it.
 AGENTS_MD_MAX = int(os.environ.get("AGENT_INSTRUCTIONS_MAX_CHARS", "3000"))
+# Instructions that hold for every repo on this machine, prepended before the
+# checkout's own AGENTS.md. Its own smaller budget on purpose: the repo file
+# knows the build command and the layout, which matters more than anything
+# stated globally, and the two share one 8K context.
+GLOBAL_MD_MAX = int(os.environ.get("AGENT_GLOBAL_INSTRUCTIONS_MAX_CHARS", "1200"))
+GLOBAL_INSTRUCTIONS = os.environ.get("AGENT_GLOBAL_INSTRUCTIONS", "")
 # Reasoning models narrate before answering. Set AGENT_SHOW_THINKING=1 to keep it.
 SHOW_THINKING = os.environ.get("AGENT_SHOW_THINKING", "0") == "1"
 # native = OpenAI tool_calls. text = a plain TOOL:/ARGS: protocol the model
@@ -770,6 +776,20 @@ Rules:
 - Be brief in prose."""
 
 
+def _read_instructions(path, cap):
+    """Read one instructions file, bounded. Returns (text, was_truncated)."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read().strip()
+    except OSError:
+        return "", False
+    if not text:
+        return "", False
+    if len(text) > cap:
+        return text[:cap] + "\n...(truncated)", True
+    return text, False
+
+
 def repo_instructions(workdir):
     """Load AGENTS.md, or CLAUDE.md as a fallback. Nearest file wins, matching
     the AGENTS.md convention for monorepos."""
@@ -777,17 +797,34 @@ def repo_instructions(workdir):
         path = os.path.join(workdir, name)
         if not os.path.isfile(path):
             continue
-        try:
-            with open(path, encoding="utf-8", errors="replace") as fh:
-                text = fh.read().strip()
-        except OSError:
+        text, truncated = _read_instructions(path, AGENTS_MD_MAX)
+        if text:
+            return name, text, truncated
+    return None, "", False
+
+
+def global_instructions():
+    """Instructions for every repo on this machine.
+
+    A per-repo AGENTS.md cannot say "you are running unattended on a Pi, never
+    touch lockfiles" without that being copied into every checkout and drifting.
+    This is where machine-level rules live. The repo file is still appended
+    after it, so the nearest file wins where the two disagree - the same
+    precedence AGENTS.md uses for monorepos.
+
+    Note it does NOT reach opencode: an escalated run reads the project's
+    AGENTS.md and opencode's own global config, not this file.
+    """
+    candidates = [GLOBAL_INSTRUCTIONS] if GLOBAL_INSTRUCTIONS else [
+        os.path.expanduser("~/.config/pi5-agent/AGENTS.md"),
+        "/etc/my-pi5-setup/AGENTS.md",
+    ]
+    for path in candidates:
+        if not path or not os.path.isfile(path):
             continue
-        if not text:
-            continue
-        truncated = len(text) > AGENTS_MD_MAX
-        if truncated:
-            text = text[:AGENTS_MD_MAX] + "\n...(truncated)"
-        return name, text, truncated
+        text, truncated = _read_instructions(path, GLOBAL_MD_MAX)
+        if text:
+            return path, text, truncated
     return None, "", False
 
 
@@ -989,11 +1026,16 @@ def settle(tools):
 def agent_loop(prompt, tools, include_write):
     try:
         system = SYSTEM
-        name, extra, truncated = repo_instructions(tools.workdir)
-        if extra:
-            system += f"\n\n--- Project instructions from {name} ---\n{extra}"
+        # Machine-level first, repo second: where they disagree, the nearer
+        # file is the one the model reads last and follows.
+        for label, (name, extra, truncated), cap in (
+                ("Machine instructions", global_instructions(), GLOBAL_MD_MAX),
+                ("Project instructions", repo_instructions(tools.workdir), AGENTS_MD_MAX)):
+            if not extra:
+                continue
+            system += f"\n\n--- {label} from {name} ---\n{extra}"
             note = f"{DIM}  using {name}"
-            note += f" (truncated to {AGENTS_MD_MAX} chars){RST}" if truncated else RST
+            note += f" (truncated to {cap} chars){RST}" if truncated else RST
             print(note)
 
         specs = tool_specs(include_write)

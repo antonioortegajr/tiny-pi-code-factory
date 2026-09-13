@@ -297,7 +297,9 @@ follows, the tool list, the safety model, `AGENTS.md` support, and the limits.
 
 It follows no agent framework: just the OpenAI tool-calling wire format, plus
 `AGENTS.md` for project instructions — the same file `opencode` reads, so one
-file steers both.
+file steers both. Rules that hold for *every* repo on the machine go in
+`~/.config/pi5-agent/AGENTS.md`, which is prepended to the repo's own —
+[details](docs/pi5-agent.md#instructions-for-every-repo).
 
 ### Label-driven queue
 
