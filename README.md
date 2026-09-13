@@ -787,6 +787,3 @@ state/            gitignored: detection results and backups
 ```
 
 This line written autonomously by a Raspberry Pi 5
-This line written autonomously by a Raspberry Pi 5
-
-This line written autonomously by a Raspberry Pi 5
