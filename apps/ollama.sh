@@ -50,6 +50,13 @@ app_install() {
 		# Localhost only by default. Open WebUI reaches it via --network=host,
 		# so there is no reason to expose this to the LAN.
 		printf 'Environment="OLLAMA_HOST=%s"\n' "${OLLAMA_HOST:-127.0.0.1:11434}"
+		# Ollama's own default is 4096 tokens regardless of what the model
+		# supports - qwen3.5:4b handles 262144 - and it is a server setting, not
+		# something a request to the OpenAI-compatible endpoint can change. The
+		# ceiling here is RAM, not the model: the fp16 KV cache costs roughly
+		# 140 KB per token, so 8K is ~1.1 GB on top of 2.5 GB of weights and 32K
+		# would not leave room for the OS.
+		printf 'Environment="OLLAMA_CONTEXT_LENGTH=%s"\n' "${OLLAMA_CONTEXT_LENGTH:-8192}"
 	} | write_file /etc/systemd/system/ollama.service.d/10-my-pi5-setup.conf
 
 	if [ "$DRY_RUN" != "1" ]; then

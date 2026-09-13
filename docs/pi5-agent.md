@@ -298,6 +298,30 @@ now means both approaches were tried.
 | `AGENT_PR_DRAFT` | `0` | `1` opens pull requests as drafts again |
 | `AGENT_PR_CLOSES` | `1` | `0` links with `Refs #N` so merging does not close |
 
+### How much context is there really
+
+Ollama allocates **4096 tokens by default**, whatever the model supports — and
+`qwen3.5:4b-q4_K_M` reports 262144. Nothing in a request to the
+OpenAI-compatible endpoint changes it; it is the server's `OLLAMA_CONTEXT_LENGTH`.
+`apps/ollama.sh` now sets it to 8192, adjustable from `settings.local.env`.
+
+The ceiling is RAM rather than the model. The fp16 KV cache costs roughly 140 KB
+per token for a 4B model:
+
+| `OLLAMA_CONTEXT_LENGTH` | KV cache | with 2.5 GB weights | on an 8 GB Pi |
+| --- | --- | --- | --- |
+| 4096 (Ollama default) | 0.6 GB | 3.1 GB | fine, and half of what you thought |
+| 8192 | 1.1 GB | 3.6 GB | fine |
+| 16384 | 2.2 GB | 4.7 GB | fits |
+| 32768 | 4.4 GB | 6.9 GB | no room for the OS |
+
+Check what is actually loaded with `ollama ps`, which prints the context in use.
+
+Bigger is not free even when it fits: every generated token reads the whole KV
+cache, so tok/s falls as the window grows. `AGENT_MAX_TOOL_CHARS` is the knob
+that spends the extra room — raise it once the window is bigger, or the tool
+results stay the same size and nothing changes.
+
 ## Speed
 
 A reasoning model on a Pi 5 generates a few tokens a second, and it spends some

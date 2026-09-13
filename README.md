@@ -540,6 +540,15 @@ it:
 fp16 KV cache, approximate layer and head counts, before the OS. Every row
 exceeds 8 GB at the context Hermes expects.
 
+That table is also the reason `OLLAMA_CONTEXT_LENGTH` is set to 8192 here rather
+than left alone. Ollama allocates **4096 tokens by default no matter what the
+model supports** — `qwen3.5:4b-q4_K_M` reports a context length of 262144 — and
+the OpenAI-compatible endpoint cannot raise it per request, so it is a service
+setting. 8192 doubles the room for about 1.1 GB of KV cache; 16384 still fits an
+8 GB Pi; 32768 does not leave space for the OS. Raise it in `settings.local.env`
+and watch `free -h` and tok/s together — a bigger window costs memory bandwidth
+on every token, so it is not free even when it fits.
+
 arm64 itself is fine — Nous ship a Termux path — so this is a memory ceiling,
 not a portability one. It is installed here because it is worth having on a
 bigger machine. **On the Pi, use `pi5-agent` or `opencode`**, both of which keep
