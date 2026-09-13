@@ -236,7 +236,7 @@ Ollama has parsed the Hermes `<tool_call>` format for years. `hermes3:8b`
 
 ```sh
 make app APP=ollama
-pi5-agent --backend ollama --selftest
+pi5-agent --selftest
 ```
 
 If `make llm-test` stage 4 fails, `hermes3:3b` is the thing to try before
@@ -252,7 +252,7 @@ make llm-test
 Four stages in dependency order, each printing what it saw:
 
 ```
-1. endpoint        reachable at http://127.0.0.1:1234/v1
+1. endpoint        reachable at http://127.0.0.1:11434/v1
 2. model           qwen3.5:4b-q4_K_M
 3. inference       asks a real question, prints the answer and tok/s
 4. tool calling    offers tools, checks tool_calls come back
