@@ -50,7 +50,21 @@ env_files="/etc/my-pi5-setup/queue.env"
 # nothing and the escalation branch never ran. Resolve it as the user, once, at
 # install time, and put its directory on the service's PATH.
 service_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-opencode_bin="$(as_user bash -lc 'command -v opencode' 2>/dev/null || true)"
+# Not `bash -lc 'command -v opencode'`: a login shell reads ~/.profile, while
+# opencode's installer appends its PATH line to ~/.bashrc, which returns early
+# when non-interactive. That lookup finds nothing on a machine where the binary
+# is plainly there. Probe the install locations instead, then fall back to
+# whatever is already on PATH.
+opencode_bin=""
+for cand in "$TARGET_HOME/.opencode/bin/opencode" \
+            "$TARGET_HOME/.local/bin/opencode" \
+            "$TARGET_HOME/.bun/bin/opencode" \
+            "$TARGET_HOME/.npm-global/bin/opencode" \
+            "/usr/local/bin/opencode" \
+            "/opt/opencode/bin/opencode"; do
+	[ -x "$cand" ] && { opencode_bin="$cand"; break; }
+done
+[ -n "$opencode_bin" ] || opencode_bin="$(command -v opencode 2>/dev/null || true)"
 if [ -n "$opencode_bin" ]; then
 	opencode_dir="$(dirname "$opencode_bin")"
 	case ":$service_path:" in
