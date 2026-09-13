@@ -426,8 +426,15 @@ class Tools:
             return "refused: read-only run. Rerun with --allow-write."
         if not self.branch:
             return "refused: not on an agent branch."
-        if self.branch == self.default_branch():
+        # The branch that is checked out, not the one we think we made. settle()
+        # runs on more than one exit path and can be reached after the switch
+        # back, and this guard passing on a stale name is how a "wip: unfinished
+        # agent run" commit landed on main.
+        here = self.current_branch()
+        if here == self.default_branch():
             return "refused: will not commit to the default branch."
+        if here != self.branch:
+            return (f"refused: on {here}, not the agent branch {self.branch}.")
         self._git("add", "-A")
 
         # Check what is actually staged, after add, before commit. A secret in a
@@ -935,6 +942,10 @@ def settle(tools):
     if not tools.branch:
         return
     default = tools.default_branch()
+    # Already back on the default branch means an earlier settle() finished the
+    # job. Anything dirty here belongs to the human, not to this run.
+    if tools.current_branch() != tools.branch:
+        return
 
     # Committing on the agent branch keeps the attempt reviewable and hands the
     # default branch back clean.
