@@ -86,6 +86,16 @@ fi
 	printf 'QUEUE_TOPIC=%s\n' "${QUEUE_TOPIC:-}"
 	printf 'AGENT_LABEL=%s\n' "${AGENT_LABEL:-agent:queued}"
 	printf 'AGENT_BASE_URL=%s\n' "${AGENT_BASE_URL:-http://127.0.0.1:11434/v1}"
+	printf 'AGENT_MODEL_ID=%s\n' "${AGENT_MODEL_ID:-}"
+	printf 'AGENT_MAX_TURNS=%s\n' "${AGENT_MAX_TURNS:-}"
+	printf 'AGENT_MAX_TOOL_CHARS=%s\n' "${AGENT_MAX_TOOL_CHARS:-}"
+	printf 'AGENT_READ_LINES=%s\n' "${AGENT_READ_LINES:-}"
+	printf 'AGENT_TIMEOUT=%s\n' "${AGENT_TIMEOUT:-}"
+	printf 'AGENT_ESCALATE=%s\n' "${AGENT_ESCALATE:-}"
+	printf 'AGENT_PR_DRAFT=%s\n' "${AGENT_PR_DRAFT:-}"
+	printf 'AGENT_PR_CLOSES=%s\n' "${AGENT_PR_CLOSES:-}"
+	printf 'AGENT_TOOL_MODE=%s\n' "${AGENT_TOOL_MODE:-}"
+	printf 'AGENT_GLOBAL_INSTRUCTIONS=%s\n' "${AGENT_GLOBAL_INSTRUCTIONS:-}"
 } | write_file "$env_files" 0644
 
 telegram_env=""
