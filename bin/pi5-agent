@@ -1155,8 +1155,15 @@ def work_with_opencode(tools, num, title, body):
                               f"on the Pi, unreviewed.")
     if commit.startswith("error"):
         return commit
+    # No issue link here: gh_pr_create adds exactly one, in whichever form
+    # AGENT_PR_CLOSES selects. Writing "Refs #N" at this level produced a body
+    # that said both "Refs #5." and "Closes #5".
+    stat = tools._git("diff", "--stat", f"{tools.default_branch()}...HEAD")
+    detail = f"\n\n```\n{stat.strip()}\n```" if stat and not stat.startswith("error") else ""
     return tools.gh_pr_create(
-        f"{title}", f"Refs #{num}.\n\nEdited via the opencode harness.")
+        f"{title}",
+        f"Edited via the opencode harness, after the built-in loop produced "
+        f"no pull request.{detail}")
 
 
 
