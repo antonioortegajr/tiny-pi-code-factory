@@ -57,7 +57,7 @@ app_install() {
 		# 140 KB per token, so 8K is ~1.1 GB on top of 2.5 GB of weights and 32K
 		# would not leave room for the OS.
 		printf 'Environment="OLLAMA_CONTEXT_LENGTH=%s"\n' "${OLLAMA_CONTEXT_LENGTH:-8192}"
-	printf 'Environment="OLLAMA_KEEP_ALIVE=%s"\n' "${OLLAMA_KEEP_ALIVE:--1}"
+		printf 'Environment="OLLAMA_KEEP_ALIVE=%s"\n' "${OLLAMA_KEEP_ALIVE:--1}"
 	} | write_file /etc/systemd/system/ollama.service.d/10-my-pi5-setup.conf
 
 	if [ "$DRY_RUN" != "1" ]; then
