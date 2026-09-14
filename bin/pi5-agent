@@ -445,7 +445,11 @@ class Tools:
             return "refused: will not commit to the default branch."
         if here != self.branch:
             return (f"refused: on {here}, not the agent branch {self.branch}.")
-        self._git("add", "-A")
+        if not self.touched:
+            return "refused: no files were touched by this agent."
+
+        for path in self.touched:
+            self._git("add", path)
 
         # Check what is actually staged, after add, before commit. A secret in a
         # diff is the one mistake that a later revert does not undo.
