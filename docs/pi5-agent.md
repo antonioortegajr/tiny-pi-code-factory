@@ -186,6 +186,10 @@ call, and a small model's characteristic failure is not stopping — it asserts
 success. This makes an honest stop legible; it does not make a dishonest finish
 impossible. That is what your review of the pull request is for.
 
+Five attempts at one unanswerable issue produced zero uses of the tool, with a
+fabricated answer on the attempt that had the most context and turns available.
+The tool makes an honest stop legible rather than likely.
+
 ### Why so few tools
 
 Tool-choice accuracy falls off sharply as the menu grows, and a 4B model is

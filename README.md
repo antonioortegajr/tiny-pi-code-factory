@@ -327,6 +327,9 @@ issue rather than a guess at what went wrong — and skips the escalation, since
 opencode runs the same model and would hit the same wall. See
 [stopping is an outcome](docs/pi5-agent.md#stopping-is-an-outcome).
 
+The tool exists, and a small model usually confabulates instead of using it, so
+a pull request still needs reading.
+
 They are a state machine rather than a category, which is why they read
 `agent:state` — the prefix groups them in GitHub's label dropdown, and the names
 stay accurate if this queue ever runs somewhere other than the Pi. Change them
