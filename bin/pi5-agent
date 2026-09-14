@@ -739,10 +739,10 @@ def chat(messages, tools=None):
     if tools:
         payload["tools"] = tools
     if not SHOW_THINKING:
-        # Ollama honours this for reasoning models; anything that does not
-        # understand it ignores an unknown field, and the stripping below still
-        # cleans up whatever arrives.
+        # "think" is Ollama-native; OpenAI-compatible endpoints ignore it.
+        # Set "reasoning_effort": "none" to suppress narration on those endpoints.
         payload["think"] = False
+        payload["reasoning_effort"] = "none"
     msg = post("/chat/completions", payload)["choices"][0]["message"]
     if msg.get("content"):
         msg["content"] = strip_thinking(msg["content"])
@@ -839,7 +839,10 @@ def _plain(messages, timeout=None):
     payload = {"messages": messages, "temperature": 0.2, "max_tokens": 1024,
                "model": resolve_model()}
     if not SHOW_THINKING:
+        # "think" is Ollama-native; OpenAI-compatible endpoints ignore it.
+        # Set "reasoning_effort": "none" to suppress narration on those endpoints.
         payload["think"] = False
+        payload["reasoning_effort"] = "none"
     data = post("/chat/completions", payload, timeout=timeout)
     msg = data["choices"][0]["message"]
     if msg.get("content"):

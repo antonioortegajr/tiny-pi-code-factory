@@ -1,3 +1,7 @@
 # Runtime state: detection results, backups of files we replaced, run markers.
 state/
 settings.local.env
+
+# Python bytecode, which git add -A would otherwise sweep into a PR.
+__pycache__/
+*.pyc
