@@ -66,7 +66,8 @@ app_install() {
 
 	if [ "$DRY_RUN" != "1" ]; then
 		sudo systemctl daemon-reload
-		sudo systemctl enable --now ollama >/dev/null 2>&1 \
+		sudo systemctl enable ollama >/dev/null 2>&1
+		sudo systemctl restart ollama >/dev/null 2>&1 \
 			|| warn "could not start the ollama service"
 	fi
 
