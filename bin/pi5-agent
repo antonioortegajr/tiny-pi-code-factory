@@ -446,7 +446,12 @@ class Tools:
             return "refused: will not commit to the default branch."
         if here != self.branch:
             return (f"refused: on {here}, not the agent branch {self.branch}.")
-        self._git("add", "-A")
+        if not self.touched:
+            return "refused: no files were touched by this agent."
+
+        # Separate arguments, never a joined string, and -- so a path that
+        # looks like an option cannot become one.
+        self._git("add", "--", *sorted(self.touched))
 
         # Check what is actually staged, after add, before commit. A secret in a
         # diff is the one mistake that a later revert does not undo.
@@ -1201,6 +1206,10 @@ def work_with_opencode(tools, num, title, body):
     # opencode edits files itself, so the write-time guard cannot apply. Check
     # what it touched before committing any of it.
     touched = [ln[3:].strip() for ln in changed.splitlines() if len(ln) > 3]
+    # git_commit stages tools.touched, which the agent's own write tools fill
+    # in. opencode edits files itself, so record what it changed here or the
+    # commit has nothing to stage and refuses.
+    tools.touched.update(touched)
     blocked = [f for f in touched if tools.is_protected(f)]
     if blocked:
         tools._git("checkout", "--", ".")
