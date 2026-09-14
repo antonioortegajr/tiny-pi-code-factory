@@ -902,10 +902,13 @@ def selftest():
     tokens = (data.get("usage") or {}).get("completion_tokens")
     if tokens and elapsed > 0:
         rate = tokens / elapsed
-        verdict = ("comfortable" if rate >= 5 else
-                   "usable but slow" if rate >= 2 else
-                   "painful - consider a smaller model")
-        print(f"   {DIM}{tokens} tokens in {elapsed:.1f}s = {rate:.1f} tok/s ({verdict}){RST}")
+        if tokens >= 80:
+            verdict = ("comfortable" if rate >= 5 else
+                       "usable but slow" if rate >= 2 else
+                       "painful - consider a smaller model")
+            print(f"   {DIM}{tokens} tokens in {elapsed:.1f}s = {rate:.1f} tok/s ({verdict}){RST}")
+        else:
+            print(f"   {DIM}{tokens} tokens in {elapsed:.1f}s - too short to measure rate{RST}")
     else:
         print(f"   {DIM}{elapsed:.1f}s to first complete answer{RST}")
 
