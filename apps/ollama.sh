@@ -66,7 +66,12 @@ app_install() {
 
 	if [ "$DRY_RUN" != "1" ]; then
 		sudo systemctl daemon-reload
-		sudo systemctl enable --now ollama >/dev/null 2>&1 \
+		sudo systemctl enable ollama >/dev/null 2>&1 \
+			|| warn "could not enable the ollama service at boot"
+		# restart, not "enable --now": --now starts a stopped service and
+		# leaves a running one alone, so a changed Environment= line above
+		# would sit on disk unread until the next reboot.
+		sudo systemctl restart ollama >/dev/null 2>&1 \
 			|| warn "could not start the ollama service"
 	fi
 
