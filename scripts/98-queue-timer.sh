@@ -86,16 +86,17 @@ fi
 	printf 'QUEUE_TOPIC=%s\n' "${QUEUE_TOPIC:-}"
 	printf 'AGENT_LABEL=%s\n' "${AGENT_LABEL:-agent:queued}"
 	printf 'AGENT_BASE_URL=%s\n' "${AGENT_BASE_URL:-http://127.0.0.1:11434/v1}"
-	printf 'AGENT_MODEL_ID=%s\n' "${AGENT_MODEL_ID:-}"
-	printf 'AGENT_MAX_TURNS=%s\n' "${AGENT_MAX_TURNS:-}"
-	printf 'AGENT_MAX_TOOL_CHARS=%s\n' "${AGENT_MAX_TOOL_CHARS:-}"
-	printf 'AGENT_READ_LINES=%s\n' "${AGENT_READ_LINES:-}"
-	printf 'AGENT_TIMEOUT=%s\n' "${AGENT_TIMEOUT:-}"
-	printf 'AGENT_ESCALATE=%s\n' "${AGENT_ESCALATE:-}"
-	printf 'AGENT_PR_DRAFT=%s\n' "${AGENT_PR_DRAFT:-}"
-	printf 'AGENT_PR_CLOSES=%s\n' "${AGENT_PR_CLOSES:-}"
-	printf 'AGENT_TOOL_MODE=%s\n' "${AGENT_TOOL_MODE:-}"
-	printf 'AGENT_GLOBAL_INSTRUCTIONS=%s\n' "${AGENT_GLOBAL_INSTRUCTIONS:-}"
+	# Only variables that are actually set. An EnvironmentFile line of
+	# 'AGENT_MAX_TURNS=' sets the variable to the empty string, which is not the
+	# same as unset: os.environ.get returns "" instead of the default, and
+	# int("") raises. Empty lines here would crash pi5-agent on every run, and
+	# quietly flip AGENT_ESCALATE and AGENT_PR_CLOSES off into the bargain.
+	for _v in AGENT_MODEL_ID AGENT_MAX_TURNS AGENT_MAX_TOOL_CHARS \
+	          AGENT_READ_LINES AGENT_TIMEOUT AGENT_ESCALATE \
+	          AGENT_PR_DRAFT AGENT_PR_CLOSES AGENT_TOOL_MODE \
+	          AGENT_GLOBAL_INSTRUCTIONS; do
+		[ -n "${!_v:-}" ] && printf '%s=%s\n' "$_v" "${!_v}"
+	done
 } | write_file "$env_files" 0644
 
 telegram_env=""
