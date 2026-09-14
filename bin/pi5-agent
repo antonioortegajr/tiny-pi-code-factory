@@ -1349,7 +1349,7 @@ def queue(args):
                       "--add-label", LABEL_DONE, "--remove-label", LABEL)
             via = " via opencode, after the built-in loop failed" if escalated else ""
             tools._gh("issue", "comment", str(num),
-                      "--body", f"Draft PR opened by the local agent{via}: "
+                      "--body", f"Pull request opened by the local agent{via}: "
                                 f"{tools.pr_url}\n\n"
                                 f"Model output is unreviewed. Please read the diff. "
                                 f"Merging it closes this issue "
