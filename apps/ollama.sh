@@ -58,6 +58,10 @@ app_install() {
 		# would not leave room for the OS.
 		printf 'Environment="OLLAMA_CONTEXT_LENGTH=%s"\n' "${OLLAMA_CONTEXT_LENGTH:-8192}"
 		printf 'Environment="OLLAMA_KEEP_ALIVE=%s"\n' "${OLLAMA_KEEP_ALIVE:--1}"
+		# Flash attention is what makes a quantized KV cache possible; q8_0
+		# roughly halves its memory, which is what buys a 16K window on 8 GB.
+		printf 'Environment="OLLAMA_FLASH_ATTENTION=%s"\n' "${OLLAMA_FLASH_ATTENTION:-1}"
+		printf 'Environment="OLLAMA_KV_CACHE_TYPE=%s"\n' "${OLLAMA_KV_CACHE_TYPE:-q8_0}"
 	} | write_file /etc/systemd/system/ollama.service.d/10-my-pi5-setup.conf
 
 	if [ "$DRY_RUN" != "1" ]; then
