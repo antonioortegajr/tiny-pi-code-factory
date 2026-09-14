@@ -23,6 +23,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -853,8 +854,6 @@ def _plain(messages, timeout=None):
 def selftest():
     """Four stages, in dependency order. Each one prints what it saw, so a
     failure says which layer broke rather than just 'it did not work'."""
-    import time
-
     print(f"{BOLD}1. endpoint{RST}")
     print(f"   {BASE_URL}")
     model = loaded_model()
@@ -1270,6 +1269,7 @@ def queue(args):
             continue
 
         print(f"\n{BOLD}=== #{num}  {title}{RST}")
+        started = time.monotonic()
 
         # Each issue starts from a clean default branch, or its diff would
         # include the previous issue's work.
@@ -1313,6 +1313,7 @@ def queue(args):
         # Kept before the escalation replaces `tools`, since the reason has to
         # outlive the object that recorded it.
         gave_up = tools.gave_up
+        turns = tools.tools_used
 
         # Second approach before conceding, if the first one produced nothing.
         #
@@ -1390,6 +1391,16 @@ def queue(args):
             tools._gh("issue", "comment", str(num), "--body", body)
             warn(f"#{num}: {gave_up}" if gave_up else f"#{num} produced no PR")
             failed += 1
+
+        # One greppable line per issue, so "did the last change help" is a table
+        # rather than an argument. The journal is the record; this is the row.
+        outcome = ("pr" if tools.pr_url else
+                   "gave-up" if gave_up else
+                   "no-pr")
+        print(f"{BOLD}--- #{num} {outcome} "
+              f"turns={turns} "
+              f"elapsed={time.monotonic() - started:.0f}s"
+              f"{' escalated' if escalated else ''}{RST}")
 
     probe._git("switch", default)
     print(f"\n{BOLD}{worked} PR(s) opened, {failed} failed, {skipped} skipped{RST}")

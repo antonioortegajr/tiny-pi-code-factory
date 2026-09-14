@@ -118,6 +118,10 @@ Wants=network-online.target
 Type=oneshot
 User=$TARGET_USER
 Environment="HOME=$TARGET_HOME"
+# Unbuffered, or Python block-buffers stdout into the journal and flushes it all
+# at exit - every line of a ten-minute run then carries the same timestamp, and
+# the journal records when the process died rather than when each turn happened.
+Environment="PYTHONUNBUFFERED=1"
 EnvironmentFile=$env_files
 $telegram_env
 ExecStart=$REPO_ROOT/bin/pi5-queue-all
