@@ -95,7 +95,12 @@ fi
 	          AGENT_READ_LINES AGENT_TIMEOUT AGENT_ESCALATE \
 	          AGENT_PR_DRAFT AGENT_PR_CLOSES AGENT_TOOL_MODE \
 	          AGENT_GLOBAL_INSTRUCTIONS; do
-		[ -n "${!_v:-}" ] && printf '%s=%s\n' "$_v" "${!_v}"
+		# if/then, not [ ] && printf: under `set -e` the loop's exit status is
+		# the last iteration's test, so a trailing unset variable would abort
+		# the whole script with the env file half written.
+		if [ -n "${!_v:-}" ]; then
+			printf '%s=%s\n' "$_v" "${!_v}"
+		fi
 	done
 } | write_file "$env_files" 0644
 
