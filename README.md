@@ -774,7 +774,7 @@ captured/         output of 'make capture' - this machine's inventory
 state/            gitignored: detection results and backups
 ```
 
-This line written autonomously by a Raspberry Pi 5
-This line written autonomously by a Raspberry Pi 5
+This line written autonomously by a Raspberry Pi 5 using big-pickle
+This line written autonomously by a Raspberry Pi 5 using big-pickle
 
-This line written autonomously by a Raspberry Pi 5
+This line written autonomously by a Raspberry Pi 5 using big-pickle
