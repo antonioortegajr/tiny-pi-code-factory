@@ -20,7 +20,7 @@ app_install() {
 		# page rather than adding another apt source for one package.
 		local ver deb tmp
 		ver="$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest \
-			| sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p' | head -n1)"
+			| jq -r '.tag_name')"
 		if [ -z "$ver" ]; then
 			warn "could not determine the latest gh release"
 			log "install it by hand from https://github.com/cli/cli/releases"
