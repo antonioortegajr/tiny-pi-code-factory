@@ -40,8 +40,7 @@ plain text on a FAT partition, so it should be worth as little as possible.
 
 ### If you would rather clone it yourself
 
-Perfectly fine, and probably simplest if you are already SSHed in from your Mac.
-GitHub accepts your username plus a personal access token as the password:
+Perfectly fine, and probably simplest if you are already SSHed in from your Mac:
 
 ```sh
 git clone https://github.com/antonioortegajr/tiny-pi-code-factory.git
@@ -52,14 +51,8 @@ make llm-test           # is the local AI actually working?
 make doctor             # everything else
 ```
 
-Afterwards, check the remote did not keep your token:
-
-```sh
-git remote -v           # should NOT contain your token
-```
-
-If it does, scrub it — and consider switching to SSH, since `make ssd-state`
-puts `~/.ssh` on the SSD and the key then survives every future reflash:
+If you plan to push from the Pi, switch the remote to SSH — `make ssd-state`
+puts `~/.ssh` on the SSD, so the key survives every future reflash:
 
 ```sh
 git remote set-url origin git@github.com:antonioortegajr/tiny-pi-code-factory.git
