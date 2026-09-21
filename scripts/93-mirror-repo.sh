@@ -14,7 +14,7 @@ if [ -z "${SSD_MOUNT_POINT:-}" ] || ! mountpoint -q "$SSD_MOUNT_POINT" 2>/dev/nu
 	summary "mirror"; exit 0
 fi
 
-dest="$SSD_MOUNT_POINT/my-pi5-setup"
+dest="$SSD_MOUNT_POINT/tiny-pi-code-factory"
 
 if [ "$REPO_ROOT" = "$dest" ]; then
 	skip "already running from the SSD copy"
