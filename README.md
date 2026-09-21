@@ -44,8 +44,8 @@ Perfectly fine, and probably simplest if you are already SSHed in from your Mac.
 GitHub accepts your username plus a personal access token as the password:
 
 ```sh
-git clone https://github.com/antonioortegajr/my-pi5-setup.git
-cd my-pi5-setup
+git clone https://github.com/antonioortegajr/tiny-pi-code-factory.git
+cd tiny-pi-code-factory
 DRY_RUN=1 make all      # read this first
 make all
 make llm-test           # is the local AI actually working?
