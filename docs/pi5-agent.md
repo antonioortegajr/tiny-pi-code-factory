@@ -402,7 +402,7 @@ and does not depend on this running.
 
 ## Working on itself
 
-The agent can be pointed at `my-pi5-setup`, so it can edit its own code. That is
+The agent can be pointed at `tiny-pi-code-factory`, so it can edit its own code. That is
 allowed, because the guard is the same one as everywhere else: the work lands on
 an `agent/` branch as a pull request, and nothing reaches `main` without you merging
 it. Banning it outright would also stop you asking the agent to improve its own

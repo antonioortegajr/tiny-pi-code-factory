@@ -1,4 +1,4 @@
-# my-pi5-setup - run these on the Pi itself.
+# tiny-pi-code-factory - run these on the Pi itself.
 #
 #   make all          full setup on a freshly flashed image
 #   make dark         re-assert the dark theme (safe to run any time)

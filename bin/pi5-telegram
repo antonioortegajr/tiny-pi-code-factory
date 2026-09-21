@@ -10,7 +10,7 @@ thing it does is work them into draft PRs. Four commands, nothing else parsed.
   /status            model server health
   /help              the above
 
-Plain phrasing is matched too - "Doom check for new issues in my-pi5-setup"
+Plain phrasing is matched too - "Doom check for new issues in tiny-pi-code-factory"
 finds the repo name and runs the queue - but by string matching here, not by
 asking the model. Nothing a message contains is ever sent to it as a prompt, so
 this stays a fixed set of reviewable workflows however it is phrased.
@@ -111,7 +111,7 @@ HELP = """I work GitHub issues on the Pi. I do not chat.
 /help           this
 
 Naming a repo in plain words works too:
-  "check for new github issues in my-pi5-setup"
+  "check for new github issues in tiny-pi-code-factory"
 
 Label an issue agent:queued, then tell me the repo.
 Draft PRs only - nothing is merged or closed."""
