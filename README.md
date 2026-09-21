@@ -84,7 +84,7 @@ applies — no token, no network:
 
 ```sh
 sudo mount /dev/sda1 /mnt/ssd        # whatever lsblk shows
-cd /mnt/ssd/my-pi5-setup && make all
+cd /mnt/ssd/tiny-pi-code-factory && make all
 ```
 
 ### On pasting
@@ -102,7 +102,7 @@ After the first run, `make dark` binds copy and paste explicitly in
 ### Afterwards
 
 ```sh
-cd ~/my-pi5-setup
+cd ~/tiny-pi-code-factory
 make all            # everything, idempotent - safe to rerun
 make dark           # just re-assert the dark theme
 DRY_RUN=1 make all  # show every change without making it
@@ -112,7 +112,7 @@ If there is no network but the SSD is mounted, the repo mirror is already there
 and needs nothing downloaded:
 
 ```sh
-cd /mnt/ssd/my-pi5-setup && make all
+cd /mnt/ssd/tiny-pi-code-factory && make all
 ```
 
 ## Raspberry Pi OS Lite
