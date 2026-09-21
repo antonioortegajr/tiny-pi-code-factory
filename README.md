@@ -14,29 +14,19 @@ storage.
 
 ## Use it
 
-This repo is **private**, so an anonymous `curl` gets a 404 page rather than a
-script. The fix removes typing rather than adding it: after writing the image,
-the boot partition mounts on your Mac. Copy two files onto it.
-
-**On your Mac, right after Raspberry Pi Imager finishes:**
+One command on a freshly flashed Pi:
 
 ```sh
-cp bootstrap.sh /Volumes/bootfs/
-printf '%s' 'github_pat_xxxxx' > /Volumes/bootfs/gh-token
+curl -fsSL https://raw.githubusercontent.com/antonioortegajr/tiny-pi-code-factory/main/bootstrap.sh | bash
 ```
 
-**On the Pi, first boot:**
+It clones the repo to `~/tiny-pi-code-factory` and runs `make all`. The `-f` is
+not optional: without it curl pipes an HTML error page into bash on a bad URL,
+which shows up as a syntax error around line 9 instead of a failed download.
 
-```sh
-bash /boot/firmware/bootstrap.sh
-```
-
-Short enough to type, no token in your shell history, nothing fetched before you
-have credentials. It reads the token from `/boot/firmware/gh-token`, clones, and
-runs `make all`.
-
-Use a **fine-grained token, read-only, scoped to this repo alone**. It sits in
-plain text on a FAT partition, so it should be worth as little as possible.
+No network on first boot? Copy `bootstrap.sh` onto the boot partition from your
+Mac after Raspberry Pi Imager finishes (`cp bootstrap.sh /Volumes/bootfs/`), then
+on the Pi run `bash /boot/firmware/bootstrap.sh`.
 
 ### If you would rather clone it yourself
 
