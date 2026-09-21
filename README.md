@@ -62,7 +62,7 @@ If it does, scrub it — and consider switching to SSH, since `make ssd-state`
 puts `~/.ssh` on the SSD and the key then survives every future reflash:
 
 ```sh
-git remote set-url origin git@github.com:antonioortegajr/my-pi5-setup.git
+git remote set-url origin git@github.com:antonioortegajr/tiny-pi-code-factory.git
 ```
 
 ### If you would rather curl it
@@ -70,7 +70,7 @@ git remote set-url origin git@github.com:antonioortegajr/my-pi5-setup.git
 ```sh
 GH_TOKEN=github_pat_xxxxx
 curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
-  https://raw.githubusercontent.com/antonioortegajr/my-pi5-setup/main/bootstrap.sh \
+  https://raw.githubusercontent.com/antonioortegajr/tiny-pi-code-factory/main/bootstrap.sh \
   | GH_TOKEN=$GH_TOKEN bash
 ```
 
