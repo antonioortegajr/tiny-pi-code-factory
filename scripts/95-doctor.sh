@@ -153,8 +153,8 @@ remote="$(as_user git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || true)
 case "$remote" in
 	*@github.com/*|*://*:*@*)
 		bad "a credential is embedded in the git remote URL"
-		fix "git remote set-url origin https://github.com/antonioortegajr/my-pi5-setup.git"
-		fix "or better, switch to ssh: git@github.com:antonioortegajr/my-pi5-setup.git"
+		fix "git remote set-url origin https://github.com/antonioortegajr/tiny-pi-code-factory.git"
+		fix "or better, switch to ssh: git@github.com:antonioortegajr/tiny-pi-code-factory.git"
 		;;
 	git@*) ok "git remote uses ssh - no token needed" ;;
 	*) [ -n "$remote" ] && ok "git remote is clean" ;;
