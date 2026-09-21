@@ -65,18 +65,6 @@ puts `~/.ssh` on the SSD and the key then survives every future reflash:
 git remote set-url origin git@github.com:antonioortegajr/tiny-pi-code-factory.git
 ```
 
-### If you would rather curl it
-
-```sh
-GH_TOKEN=github_pat_xxxxx
-curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
-  https://raw.githubusercontent.com/antonioortegajr/tiny-pi-code-factory/main/bootstrap.sh \
-  | GH_TOKEN=$GH_TOKEN bash
-```
-
-The `-f` is not optional. Without it curl pipes GitHub's HTML error page into
-bash, which reports a syntax error around line 9 instead of a failed download.
-
 ### Second reflash onward
 
 If `make mirror` has run, the repo is already on the SSD and none of the above
