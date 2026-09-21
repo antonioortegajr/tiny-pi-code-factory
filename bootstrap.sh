@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One command to run on a freshly flashed Pi:
 #
-#   curl -fsSL https://raw.githubusercontent.com/antonioortegajr/my-pi5-setup/main/bootstrap.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/antonioortegajr/tiny-pi-code-factory/main/bootstrap.sh | bash
 #
 # Finds the repo the cheapest way it can - a copy on the SSD first, then a git
 # clone - and hands over to make.
@@ -9,7 +9,7 @@
 # Environment:
 #   REPO_URL    override the clone URL
 #   GH_TOKEN    personal access token, for a private repo
-#   SSD_REPO    where to look for an existing copy (default /mnt/ssd/my-pi5-setup)
+#   SSD_REPO    where to look for an existing copy (default /mnt/ssd/tiny-pi-code-factory)
 #
 # The token is also read from a file, so it never has to be typed on the Pi:
 #   /boot/firmware/gh-token   drop this on the boot partition from your Mac
@@ -18,9 +18,9 @@
 #   /mnt/ssd/.gh-token        survives a reflash with the rest of the SSD
 set -euo pipefail
 
-REPO_URL="${REPO_URL:-https://github.com/antonioortegajr/my-pi5-setup.git}"
-CLONE_DIR="${CLONE_DIR:-$HOME/my-pi5-setup}"
-SSD_REPO="${SSD_REPO:-/mnt/ssd/my-pi5-setup}"
+REPO_URL="${REPO_URL:-https://github.com/antonioortegajr/tiny-pi-code-factory.git}"
+CLONE_DIR="${CLONE_DIR:-$HOME/tiny-pi-code-factory}"
+SSD_REPO="${SSD_REPO:-/mnt/ssd/tiny-pi-code-factory}"
 TARGET="${1:-all}"
 
 say()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
