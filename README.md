@@ -442,7 +442,7 @@ Plain phrasing works too — **naming a repo means "work it"**, since that is th
 only action available:
 
 ```
-Doom check for new github issues in this repo my-pi5-setup
+Doom check for new github issues in this repo tiny-pi-code-factory
 ```
 
 That is matched by **string comparison against your checkout names**, not by
@@ -477,7 +477,7 @@ it every time — and it is **case-insensitive**, because a phone capitalises th
 first word of a message.
 
 ```
-Doom check for new github issues in my-pi5-setup
+Doom check for new github issues in tiny-pi-code-factory
 ```
 
 Be clear about what that buys, since it is checked **after** the allowlist:
@@ -721,7 +721,7 @@ function to get there:
 
 ```sh
 github                # cd ~/GitHub
-github my-pi5-setup   # cd straight into a repo, with tab completion
+github tiny-pi-code-factory   # cd straight into a repo, with tab completion
 ```
 
 A function rather than an alias, so it can take the argument. Path comes from
