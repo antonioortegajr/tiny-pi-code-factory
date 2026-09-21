@@ -1,4 +1,4 @@
-# my-pi5-setup
+# tiny-pi-code-factory
 
 Scripts that put my Raspberry Pi 5 back the way I like it after a reflash or an
 OS change — and, above all, make it **dark everywhere, every time**.
