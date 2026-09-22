@@ -26,8 +26,7 @@ quoted verbatim, it lands the change every time: #44-#48, #52-#56, #60-#62,
 edits in one file). Line numbers in the issue are ignored or wrong more often
 than not - "match on the text, not line numbers" is the phrase that works.
 
-**Deleting files.** `git rm` of one to three named files with a grep to verify
-nothing else references them: #76-#79, all first try, all clean.
+**Deleting files - usually.** `git rm` of one to three named files with a grep\nto verify nothing else references them worked first try in #64, #65 and #68\n(PRs #76-#79). But see "Emptying a file instead of deleting it" below: the same\nissue shape failed differently in #66. Saying "use `git rm <path>`, not an edit\nthat empties the file" in the issue is what makes it reliable.
 
 **Small config or code changes with a stated reason.** One-line default
 changes (#33, #35), a short block added to a shell script (#13, #16, #17), a
@@ -107,8 +106,11 @@ Only that changes. Nothing else in this issue.
 - Is there an issue length (in characters) above which the no-tool-call
   failure becomes likely? #63 was about 2,300 characters; #62 (succeeded)
   was about 1,700.
-- Creating a new file from content given in the issue: this document is the
-  first test.
+- Creating a new file from content given in the issue works: this document was
+  created that way, first try, from #80.
+- Does an explicit negative ("not an edit that empties the file") generalise?
+  It fixed the `git rm` case; whether stating what not to do helps elsewhere
+  is untested.
 
 ## How to update this document
 
@@ -120,3 +122,20 @@ gh pr list --state all --limit 100 --json number,additions,deletions,changedFile
 gh issue list --state all --limit 100 --json number,title,labels,comments \
   --jq '.[] | select(.comments | any(.body | test("did not finish")))'
 ```
+
+**Emptying a file instead of deleting it.** #66 asked for `git rm` of
+`scripts/32-dark-apps.sh` and `config/chromium.d/99-dark-mode`. The PR merged
+as +1/-73: both files were rewritten to a single byte and left in the tree.
+The issue said "delete these files with `git rm`" but did not say what not to do. #98 restates it as "use `git rm <path>`, not an edit that empties the
+file".
+
+**Applying only part of a multi-edit issue.** #81 quoted a six-line block (a
+`##` help line, a comment, a recipe, two echo lines) and asked for it to be
+replaced. The PR changed the recipe and the echo but left the `##` help line
+untouched, so `make help` printed a target list that was no longer true. #82
+deleted four sub-targets but left the aggregate target that depended on them,
+breaking `make dark`. Both PRs looked plausible and merged. The lesson is that
+a partial application is more expensive than an outright failure, because it
+passes review: a quoted block should be one contiguous thing that must change
+together, and the issue should end with a check that catches a half-done job
+(`make -n dark`, `grep -n dark Makefile`).
