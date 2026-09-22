@@ -67,15 +67,11 @@ middle-click also work.
 Easiest is not to fight it: **SSH in from your Mac** and paste there — by
 password if you did not give Imager a key.
 
-After the first run, `make dark` binds copy and paste explicitly in
-`lxterminal.conf`.
-
 ### Afterwards
 
 ```sh
 cd ~/tiny-pi-code-factory
 make all            # everything, idempotent - safe to rerun
-make dark           # just re-assert the dark theme
 DRY_RUN=1 make all  # show every change without making it
 ```
 
