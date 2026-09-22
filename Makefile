@@ -1,16 +1,15 @@
 # tiny-pi-code-factory - run these on the Pi itself.
 #
 #   make all          full setup on a freshly flashed image
-#   make dark         re-assert the dark theme (safe to run any time)
+
 #   DRY_RUN=1 make …  print every change without making it
 
 SHELL := /bin/bash
 S     := ./scripts
 ARGS  ?=
 
-.PHONY: all dark base storage ssd-state dev harden preflight apps app network mirror llm llm-test doctor queue labels queue-timer \
-        dark-desktop dark-terminal dark-apps dark-system \
-        capture capture-theme apply-captured restore-packages check help
+.PHONY: all base storage ssd-state dev harden preflight apps app network mirror llm llm-test doctor queue labels queue-timer \
+        capture restore-packages check help
 
 help:
 	@sed -n 's/^## //p' $(MAKEFILE_LIST)
