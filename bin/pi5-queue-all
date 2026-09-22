@@ -106,9 +106,15 @@ repos() {
 worked_total=0
 summary=""
 
-for name in $(repos); do
-	dir="$GITHUB_DIR/$name"
-	[ -d "$dir/.git" ] || { log "skip $name: not a checkout"; continue; }
+# Repeat while a pass got something done: issues labelled during a long pass
+# would otherwise wait for the next timer tick. A pass that opens no PR ends
+# the loop, so a queue of only failing issues cannot spin.
+pass_worked=1
+while [ "$pass_worked" -gt 0 ]; do
+	pass_worked=0
+	for name in $(repos); do
+		dir="$GITHUB_DIR/$name"
+		[ -d "$dir/.git" ] || { log "skip $name: not a checkout"; continue; }
 
 	# Cheap check first: most cycles have nothing to do, and starting the model
 	# for an empty queue wastes minutes of CPU on a board that has none spare.
@@ -128,11 +134,14 @@ for name in $(repos); do
 	# Report only the PR links; the rest is in the journal.
 	prs="$(printf '%s\n' "$out" | grep -oE 'https://github\.com/[^ ]+/pull/[0-9]+' | sort -u)"
 	if [ -n "$prs" ]; then
-		worked_total=$((worked_total + $(printf '%s\n' "$prs" | grep -c .)))
+		n="$(printf '%s\n' "$prs" | grep -c .)"
+		worked_total=$((worked_total + n))
+		pass_worked=$((pass_worked + n))
 		summary="${summary}${name}:
 $prs
 "
 	fi
+done
 done
 
 if [ "$worked_total" -gt 0 ]; then
