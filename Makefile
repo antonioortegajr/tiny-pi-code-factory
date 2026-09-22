@@ -17,9 +17,9 @@ help:
 ## all              preflight, network, base, storage, ssd-state, dark, dev, harden, apps
 # apps run last: they are the slowest, and open-webui needs to punch its port
 # through the firewall that 'harden' just turned on.
-all: preflight network base storage ssd-state dark dev harden apps
+all: preflight network base storage ssd-state dev harden apps
 	@echo
-	@echo "Done. Log out and back in so every app picks up the theme."
+	@echo "Done."
 
 ## preflight        detect hardware/OS and write state/detected.env
 preflight:
