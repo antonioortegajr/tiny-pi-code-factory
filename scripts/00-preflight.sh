@@ -12,8 +12,8 @@ ARCH="$(uname -m)"
 KERNEL="$(uname -r)"
 COMPOSITOR="$(detect_compositor)"
 
-# A desktop image ships the Pi panel; Lite does not. Drives whether the desktop
-# theming scripts have anything to do.
+# A desktop image ships the Pi panel; Lite does not. Reported by 'make doctor';
+# Lite is the supported image, so this is a record, not a switch.
 if [ -d /usr/share/themes ] && { has_cmd wf-panel-pi || has_cmd pcmanfm || [ -d /usr/share/themes/PiXflat ]; }; then
 	HAS_DESKTOP=1
 else
