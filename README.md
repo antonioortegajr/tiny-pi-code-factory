@@ -694,32 +694,7 @@ GIT_USER_NAME="Your Name"
 GIT_USER_EMAIL=you@example.com
 ```
 
-## How the dark theme holds
 
-Getting one account dark is easy; keeping it dark is the actual problem. Four
-things cover it:
-
-- **`gtk-application-prefer-dark-theme` + `PiXnoir`** for GTK 3 apps, and
-  `gsettings color-scheme prefer-dark` for GTK 4 / libadwaita, which ignores the
-  ini file.
-- **`GTK_THEME` and `QT_QPA_PLATFORMTHEME=gtk3`** exported from both
-  `/etc/profile.d` and `~/.config/environment.d`, so apps launched from the panel
-  and from a shell agree.
-- **The login greeter and the text console**, so there is no white flash before
-  the desktop loads.
-- **`/etc/skel`**, so any account created later starts dark without running
-  anything.
-
-### When a key name changes between releases
-
-Pi OS moves these settings around between releases. Rather than chase them:
-
-1. Set the desktop up by hand (Appearance Settings) until it looks right.
-2. `make capture-theme` — snapshots the real files into `config/captured/`.
-3. Commit that.
-4. After the next reflash: `make dark && make apply-captured`.
-
-The generated defaults get you most of the way; the capture pins the rest.
 
 ## Safety
 
