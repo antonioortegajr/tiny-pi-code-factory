@@ -80,21 +80,7 @@ ssd-state: preflight
 ## dark             the whole dark theme: desktop, terminal, apps, system
 dark: dark-desktop dark-terminal dark-apps dark-system
 
-## dark-desktop     GTK, window decorations, panel, desktop background
-dark-desktop: preflight
-	@$(S)/30-dark-desktop.sh
 
-## dark-terminal    terminal colours, shell, CLI tool themes
-dark-terminal: preflight
-	@$(S)/31-dark-terminal.sh
-
-## dark-apps        VS Code, Chromium, Firefox, Thonny, Geany
-dark-apps: preflight
-	@$(S)/32-dark-apps.sh
-
-## dark-system      login greeter, console palette, /etc/skel defaults
-dark-system: preflight
-	@$(S)/33-dark-system.sh
 
 ## dev              git identity, SSH key, optional uv/node/docker
 dev: preflight
