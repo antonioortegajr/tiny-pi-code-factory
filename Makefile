@@ -116,13 +116,7 @@ app: preflight
 capture: preflight
 	@$(S)/90-capture.sh
 
-## capture-theme    snapshot the current theme files into config/captured/
-capture-theme: preflight
-	@$(S)/91-capture-theme.sh
 
-## apply-captured   replay config/captured/ onto this machine
-apply-captured: preflight
-	@$(S)/34-apply-captured-theme.sh
 
 ## restore-packages reinstall the packages recorded by 'make capture'
 restore-packages: preflight
