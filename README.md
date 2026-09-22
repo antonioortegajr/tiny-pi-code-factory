@@ -88,20 +88,7 @@ cd /mnt/ssd/tiny-pi-code-factory && make all
 
 ## Raspberry Pi OS Lite
 
-Lite works, and for this particular setup it is arguably the better choice.
-`00-preflight.sh` sets `HAS_DESKTOP=0` and the desktop scripts stand down on
-their own — nothing to configure.
-
-| Stage | On Lite |
-| --- | --- |
-| `dark-desktop` | skipped entirely — no GTK, no panel, no compositor |
-| `dark-apps` | skipped — no Chromium, VS Code, Thonny or Geany |
-| `dark-system` | greeter skipped (no lightdm); **console palette and `/etc/skel` still apply** |
-| `dark-terminal` | **fully applies** — `LS_COLORS`, bat/fzf/tmux/neovim. LXTerminal is skipped |
-| everything else | unchanged |
-
-So `make dark` shrinks to the console and the shell, which on a headless box is
-all "dark theme" can mean anyway.
+Lite is the target image. There is no desktop to configure.
 
 **The upside is RAM.** The desktop costs roughly 0.5–1 GB, and on an 8 GB Pi with
 no GPU to offload to, that is memory the model could be using. Every part of
@@ -121,12 +108,7 @@ screen attached to the Pi.
 
 | Target | What it does |
 | --- | --- |
-| `make all` | preflight → network → base → storage → ssd-state → dark → dev → harden → apps |
-| `make dark` | the whole dark theme; safe to run any time something goes light |
-| `make dark-desktop` | GTK 3/4, window decorations, panel, desktop background, Qt apps |
-| `make dark-terminal` | LXTerminal palette, `LS_COLORS`, bat/fzf/tmux/neovim |
-| `make dark-apps` | VS Code, Chromium, Firefox, Thonny, Geany |
-| `make dark-system` | login greeter, text console, `/etc/skel` for future accounts |
+| `make all` | preflight → network → base → storage → ssd-state → dev → harden → apps |
 | `make llm` | fast path to a working local model, skipping the slow apt upgrade |
 | `make llm-test` | prove the local AI works: inference, speed, tool calling |
 | `make doctor` | check the whole chain and say what to fix |
@@ -142,8 +124,7 @@ screen attached to the Pi.
 | `make app APP=ollama` | install a single app |
 | `make harden` | key-only SSH, ufw, unattended-upgrades |
 | `make capture` | record this Pi's packages and config into `captured/` |
-| `make capture-theme` | snapshot the live theme files into `config/captured/` |
-| `make apply-captured` | replay `config/captured/` onto this machine |
+
 | `make restore-packages` | reinstall what `make capture` recorded |
 | `make mirror` | copy this repo onto the SSD for the next reflash |
 | `make check` | `bash -n` + shellcheck; runs on macOS too |
