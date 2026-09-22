@@ -1,12 +1,12 @@
 # tiny-pi-code-factory
 
-Scripts that put my Raspberry Pi 5 back the way I like it after a reflash or an
-OS change — and, above all, make it **dark everywhere, every time**.
+Scripts that turn a freshly flashed Raspberry Pi 5 into a small headless code
+factory: a local LLM behind Ollama, and an agent that works the GitHub issues
+you label for it and opens pull requests. Reflash, run one command, get the same
+box back.
 
-Target: **Raspberry Pi OS 64-bit Desktop**, the image Raspberry Pi Imager offers
-by default. Trixie (labwc) and Bookworm (wayfire) are both handled; the scripts
-detect which one they are on. Boot is from USB, with an SSD on a HAT as extra
-storage.
+Target: **Raspberry Pi OS Lite 64-bit**. No desktop. Boot is from USB, with an
+SSD on a HAT as extra storage.
 
 > **Run on Raspberry Pi OS Lite, 2026-06-18.** Start with `DRY_RUN=1 make all`,
 > then `make doctor` for what actually works. LM Studio was tried and dropped —
