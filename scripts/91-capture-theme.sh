@@ -6,8 +6,6 @@
 # run this, and commit the result - 34-apply-captured-theme.sh then reproduces
 # exactly that on the next flash.
 . "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
-# shellcheck source=../lib/theme-files.sh
-. "$REPO_ROOT/lib/theme-files.sh"
 load_detected
 
 step "Capturing current theme into config/captured/"

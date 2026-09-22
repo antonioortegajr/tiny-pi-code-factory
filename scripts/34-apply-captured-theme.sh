@@ -4,7 +4,6 @@
 # Run this after 30-33 when you have a capture you trust: the generated defaults
 # get you most of the way, this pins the exact look you signed off on.
 . "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
-load_detected
 
 captured="$CONFIG_DIR/captured"
 
