@@ -76,10 +76,6 @@ storage: preflight
 ssd-state: preflight
 	@$(S)/25-ssd-state.sh $(ARGS)
 
-## dark             the whole dark theme: desktop, terminal, apps, system
-dark: dark-desktop dark-terminal dark-apps dark-system
-
-
 
 ## dev              git identity, SSH key, optional uv/node/docker
 dev: preflight
