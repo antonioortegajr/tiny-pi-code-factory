@@ -14,7 +14,7 @@ ARGS  ?=
 help:
 	@sed -n 's/^## //p' $(MAKEFILE_LIST)
 
-## all              preflight, network, base, storage, ssd-state, dark, dev, harden, apps
+## all              preflight, network, base, storage, ssd-state, dev, harden, apps
 # apps run last: they are the slowest, and open-webui needs to punch its port
 # through the firewall that 'harden' just turned on.
 all: preflight network base storage ssd-state dev harden apps
