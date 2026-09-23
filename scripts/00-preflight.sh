@@ -68,8 +68,7 @@ case "$OS_CODENAME" in
 	trixie|bookworm) ;;
 	*) warn "untested OS '$OS_CODENAME'; scripts assume Raspberry Pi OS Bookworm or Trixie" ;;
 esac
-[ "$COMPOSITOR" = none ] && [ "$HAS_DESKTOP" = 1 ] && \
-	warn "no labwc/wayfire found; window decoration theming will be skipped"
+
 
 # Written even under DRY_RUN: this is our own state file, not a system change,
 # and every later stage reads it. Skipping it made dry runs fail with unbound
