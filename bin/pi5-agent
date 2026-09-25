@@ -1138,6 +1138,9 @@ def agent_loop(prompt, tools, include_write):
                     "replace_in_file. Do not use write_file on a large file."})
                 continue
 
+            # Kept, not just printed: this is usually where a small model says
+            # what confused it, and the journal is not where anyone looks.
+            tools.last_message = (content or "").strip()
             print("\n" + (content or "(no answer)").strip())
             break
         else:
