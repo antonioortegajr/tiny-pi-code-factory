@@ -172,6 +172,7 @@ class Tools:
         self.issue_number = None  # so a PR can close the issue it came from
         self.gave_up = ""       # the model's own reason for stopping, if it said one
         self.tools_used = 0     # so a failure can say what happened, not guess
+        self.last_message = ""  # the model's final answer, when it ended without a tool call
 
     # -- helpers -----------------------------------------------------------
 
