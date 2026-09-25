@@ -583,6 +583,8 @@ SCHEMA = [
      ["path", "old", "new"], True),
     ("write_file", "Write a whole file. Only for a new or very small file - you must give the complete contents.",
      {"path": {"type": "string"}, "content": {"type": "string"}}, ["path", "content"], True),
+    ("delete_file", "Delete a file. Use this when an issue asks for a file to be removed - never write it empty instead.",
+     {"path": {"type": "string"}}, ["path"], True),
     ("git_commit", "Commit everything you have changed.",
      {"message": {"type": "string"}}, ["message"], True),
     ("gh_pr_create", "Open a pull request for a human to review.",
