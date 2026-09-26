@@ -1409,21 +1409,13 @@ def queue(args):
                 # Say what happened. This used to infer the reason from
                 # whether a branch existed, and told issue #9 that the model
                 # "never called a tool" after it had called four.
-                if not tools.tools_used:
-                    reason = "It answered in prose without ever calling a tool"
-                elif not tools.branch:
-                    reason = (f"It called {tools.tools_used} tool(s) but never "
-                              "created a branch, so nothing was written")
-                else:
-                    reason = (f"It called {tools.tools_used} tool(s) and worked on "
-                              "a branch, but opened no pull request")
-                if escalated:
-                    reason += ", and opencode did not manage it either"
-                elif ESCALATE and LABEL_OPENCODE not in labels:
-                    reason += ("; opencode was not tried because it is not on "
-                               "this service's PATH")
+                said = ""
+                if tools.last_message:
+                    quoted = "\n".join("> " + ln for ln in
+                                       tools.last_message[:1500].splitlines())
+                    said = f"\n\nWhat it said instead:\n\n{quoted}"
                 body = (f"The local agent did not finish this one. {reason}. "
-                        "No pull request was opened.\n\n"
+                        f"No pull request was opened.{said}\n\n"
                         "Re-label `agent:queued` to try again.")
             tools._gh("issue", "comment", str(num), "--body", body)
             warn(f"#{num}: {gave_up}" if gave_up else f"#{num} produced no PR")
