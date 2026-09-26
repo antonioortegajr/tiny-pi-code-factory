@@ -397,6 +397,32 @@ class Tools:
         print(f"{GRN}  appended{RST} {len(content)} bytes to {path}")
         return f"appended to {path}"
 
+    def delete_file(self, path):
+        """Remove a file from the checkout, staged for the next commit.
+
+        Without this the only way to answer "delete this file" is to write it
+        empty, which leaves it tracked and looks like a finished job in the
+        diff. `git rm` keeps the index and the working tree in step, so the
+        commit that follows records a deletion rather than a truncation.
+        """
+        if not self.allow_write:
+            return "refused: read-only run. Rerun with --allow-write."
+        if not self.branch:
+            return "refused: call git_branch first."
+        if self.is_protected(path):
+            return f"refused: {path} is this agent's own code."
+        full = self._safe_path(path)
+        if not full:
+            return "error: path is outside the working directory"
+        if not os.path.isfile(full):
+            return f"error: {path} does not exist"
+        out = self._git("rm", "-q", "--", path)
+        if out.startswith("error"):
+            return out
+        self.touched.add(path)
+        print(f"{GRN}  deleted{RST} {path}")
+        return f"deleted {path}"
+
     def replace_in_file(self, path, old, new):
         """Swap one exact string for another. The workhorse for editing a large
         file: the model only has to name the part it is changing."""
