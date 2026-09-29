@@ -1198,6 +1198,22 @@ LABEL_OPENCODE = os.environ.get("AGENT_LABEL_OPENCODE", "agent:opencode")
 ESCALATE = os.environ.get("AGENT_ESCALATE", "1") == "1"
 
 
+def issue_thread(tools, num, limit=10, cap=1500):
+    """The issue's latest comments as plain text, oldest first.
+
+    A human answers a failed run in the comments, not the body, so a prompt
+    built from the body alone never sees the answer.
+    """
+    raw = tools._gh("issue", "view", str(num), "--json", "comments")
+    try:
+        comments = json.loads(raw).get("comments") or []
+    except (json.JSONDecodeError, AttributeError):
+        return ""
+    return "\n\n".join(
+        f"{(c.get('author') or {}).get('login', '?')}: {(c.get('body') or '')[:cap]}"
+        for c in comments[-limit:])
+
+
 def work_with_opencode(tools, num, title, body):
     """Delegate one issue to the opencode CLI, inside our own guard rails.
 
