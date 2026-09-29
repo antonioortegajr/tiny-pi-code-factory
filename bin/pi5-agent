@@ -537,6 +537,14 @@ class Tools:
                 body = closing.sub(r"Refs\1", body or "")
                 if f"#{num}" not in body:
                     body = body.rstrip() + f"\n\nRefs #{num}"
+        # Someone else may have closed the issue while this run worked it - a
+        # human fix merged first. A PR now would only arrive stale and conflicting.
+        if self.issue_number:
+            state = self._gh("issue", "view", str(self.issue_number),
+                             "--json", "state", "--jq", ".state").strip()
+            if state == "CLOSED":
+                return (f"refused: issue #{self.issue_number} was closed while "
+                        "this run worked it; no pull request opened.")
         push = self._git("push", "-u", "origin", self.branch)
         if push.startswith("error"):
             return push
