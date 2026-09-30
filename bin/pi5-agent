@@ -1380,6 +1380,7 @@ def queue(args):
         # anything this loop did not. Retrying a stated "I have no way to find
         # this out" costs up to an hour of the board and reaches the same wall.
         escalated = False
+        oc_note = ""  # what happened to the opencode fallback, for the failure comment
         if (not tools.pr_url and not gave_up and ESCALATE
                 and LABEL_OPENCODE not in labels
                 and shutil.which("opencode")):
@@ -1393,6 +1394,7 @@ def queue(args):
                 result = work_with_opencode(tools, num, title, it.get("body") or "")
                 if not tools.pr_url:
                     warn(f"#{num}: opencode also produced no PR ({result})")
+                    oc_note = f"opencode was tried as a fallback and failed: {result}"
             except KeyboardInterrupt:
                 print()
                 warn(f"interrupted during #{num}; its label is unchanged")
