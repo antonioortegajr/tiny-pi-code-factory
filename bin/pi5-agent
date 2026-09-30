@@ -1241,7 +1241,9 @@ def work_with_opencode(tools, num, title, body):
     gname, gtext, _ = global_instructions()
     machine = f"\n\nMachine instructions (from {gname}):\n{gtext}" if gtext else ""
 
-    prompt = (f"Work GitHub issue #{num}: {title}\n\n{body}\n\n"
+    thread = issue_thread(tools, num)
+    comments = f"\n\nComments on the issue, oldest first:\n\n{thread}" if thread else ""
+    prompt = (f"Work GitHub issue #{num}: {title}\n\n{body}{comments}\n\n"
               "Make the smallest change that addresses this. Do not commit or "
               "push - that is handled for you." + machine)
 
