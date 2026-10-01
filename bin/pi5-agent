@@ -1446,8 +1446,9 @@ def queue(args):
                     quoted = "\n".join("> " + ln for ln in
                                        tools.last_message[:1500].splitlines())
                     said = f"\n\nWhat it said instead:\n\n{quoted}"
+                oc = f"\n\n{oc_note[:500]}" if oc_note else ""
                 body = (f"The local agent did not finish this one. "
-                        f"No pull request was opened.{said}\n\n"
+                        f"No pull request was opened.{said}{oc}\n\n"
                         "Re-label `agent:queued` to try again.")
             tools._gh("issue", "comment", str(num), "--body", body)
             warn(f"#{num}: {gave_up}" if gave_up else f"#{num} produced no PR")
