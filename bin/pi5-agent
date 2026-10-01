@@ -20,6 +20,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -1483,6 +1484,12 @@ def main():
     ap.add_argument("--queue", action="store_true",
                     help=f"work every open issue labelled '{LABEL}'")
     args = ap.parse_args()
+
+    # systemctl stop sends SIGTERM, which ends the process without any of the
+    # cleanup that Ctrl+C gets. Treat it the same so a stopped run settles.
+    def _on_term(signum, frame):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, _on_term)
 
     if args.selftest:
         sys.exit(selftest())
