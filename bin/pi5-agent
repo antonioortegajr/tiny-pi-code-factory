@@ -1227,6 +1227,10 @@ def issue_thread(tools, num, limit=10, cap=1500):
         comments = json.loads(raw).get("comments") or []
     except (json.JSONDecodeError, AttributeError):
         return ""
+    # Anyone can comment on a public issue, and this text goes to opencode,
+    # which runs with --auto. Keep only people who could already push here.
+    comments = [c for c in comments
+                if c.get("authorAssociation") in ("OWNER", "MEMBER", "COLLABORATOR")]
     return "\n\n".join(
         f"{(c.get('author') or {}).get('login', '?')}: {(c.get('body') or '')[:cap]}"
         for c in comments[-limit:])
