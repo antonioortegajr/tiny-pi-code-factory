@@ -1382,6 +1382,7 @@ def queue(args):
         # outlive the object that recorded it.
         gave_up = tools.gave_up
         turns = tools.tools_used
+        last_message = tools.last_message
 
         # Second approach before conceding, if the first one produced nothing.
         #
@@ -1443,9 +1444,9 @@ def queue(args):
                 # whether a branch existed, and told issue #9 that the model
                 # "never called a tool" after it had called four.
                 said = ""
-                if tools.last_message:
+                if last_message:
                     quoted = "\n".join("> " + ln for ln in
-                                       tools.last_message[:1500].splitlines())
+                                       last_message[:1500].splitlines())
                     said = f"\n\nWhat it said instead:\n\n{quoted}"
                 oc = f"\n\n{oc_note[:500]}" if oc_note else ""
                 body = (f"The local agent did not finish this one. "
