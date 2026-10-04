@@ -562,6 +562,10 @@ class Tools:
         return out
 
     def gh_issue_comment(self, number, body):
+        # Working one issue means commenting on that issue only. The queue asks
+        # nobody before posting, so anything else would go out unreviewed.
+        if self.issue_number is not None and str(number) != str(self.issue_number):
+            return f"refused: you are working issue #{self.issue_number}; comment there only."
         refusal = self._confirm(f"comment on issue #{number}:\n\n{body}\n")
         if refusal:
             return refusal
