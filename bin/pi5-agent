@@ -232,8 +232,17 @@ class Tools:
                         "--json", "number,title,state,labels,updatedAt")
 
     def gh_issue_view(self, number):
-        return self._gh("issue", "view", str(number),
-                        "--json", "number,title,state,body,labels,comments")
+        out = self._gh("issue", "view", str(number),
+                       "--json", "number,title,state,body,labels,comments")
+        # Anyone can comment on a public issue, and this is model input. Keep
+        # only people who could already push here.
+        try:
+            data = json.loads(out)
+        except json.JSONDecodeError:
+            return out
+        data["comments"] = [c for c in data.get("comments") or []
+                            if c.get("authorAssociation") in ("OWNER", "MEMBER", "COLLABORATOR")]
+        return json.dumps(data)
 
     def list_files(self, path="."):
         full = self._safe_path(path)
