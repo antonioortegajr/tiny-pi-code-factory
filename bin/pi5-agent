@@ -499,6 +499,12 @@ class Tools:
             return (f"refused: on {here}, not the agent branch {self.branch}.")
         if not self.touched:
             return "refused: no files were touched by this agent."
+        # Issues for this agent are one or two files. More means the run drifted
+        # from what it was asked; stop with no PR rather than ship the drift.
+        cap = int(os.environ.get("AGENT_MAX_FILES", "2"))
+        if len(self.touched) > cap:
+            return (f"refused: {len(self.touched)} files changed, more than "
+                    f"AGENT_MAX_FILES={cap}. Change only what the issue asks.")
 
         # Separate arguments, never a joined string, and -- so a path that
         # looks like an option cannot become one.
