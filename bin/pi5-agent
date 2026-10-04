@@ -195,12 +195,16 @@ class Tools:
         return full
 
     def is_protected(self, path):
-        """True for the agent's own executable code, when it is working on the
-        repo it is running from."""
+        """True for paths the agent must never change: .github/ in any repo,
+        and its own executable code when working on the repo it runs from."""
+        # A workflow on a pushed branch runs in Actions with the repo's secrets
+        # before anyone has reviewed the PR.
+        full = os.path.realpath(os.path.join(self.workdir, path))
+        rel = os.path.relpath(full, os.path.realpath(self.workdir))
+        if rel == ".github" or rel.startswith(".github" + os.sep):
+            return True
         if os.path.realpath(self.workdir) != os.path.realpath(SELF_REPO):
             return False
-        rel = os.path.normpath(path).lstrip("./")
-        return any(rel == p.rstrip("/") or rel.startswith(p) for p in PROTECTED)
 
     def _confirm(self, what):
         """Only for things that leave this machine. Local edits on a throwaway
