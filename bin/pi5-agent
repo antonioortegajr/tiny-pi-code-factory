@@ -1044,9 +1044,11 @@ def dispatch(tools, name, args, turn, mode, seen=None):
     if args is None:
         return ("error: ARGS was not valid JSON. Reply with exactly:\n"
                 'TOOL: <name>\nARGS: {"key": "value"}')
-    fn = getattr(tools, name, None)
-    if fn is None:
+    # Only the tools in SCHEMA. getattr alone reaches every method on Tools,
+    # including helpers such as _gh and _git that were never offered.
+    if name not in {spec[0] for spec in SCHEMA}:
         return f"error: no such tool: {name}"
+    fn = getattr(tools, name)
     shown = ", ".join(
         f"{k}={(v[:40] + '…') if isinstance(v, str) and len(v) > 40 else v!r}"
         for k, v in args.items())
