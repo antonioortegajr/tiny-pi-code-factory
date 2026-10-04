@@ -286,6 +286,11 @@ class Tools:
             return "error: path is outside the working directory"
         if not os.path.isfile(full):
             return f"error: no such file: {path}"
+        # Ignored files are where .env files and keys live. The model never
+        # needs them, and what it reads can end up in a PR body.
+        ignored, _ = run(["git", "check-ignore", "-q", "--", full], self.workdir)
+        if ignored == 0:
+            return f"refused: {path} is ignored by git and may hold secrets."
         try:
             with open(full, encoding="utf-8", errors="replace") as fh:
                 lines = fh.read().splitlines(keepends=True)
