@@ -178,6 +178,15 @@ class Tools:
     # -- helpers -----------------------------------------------------------
 
     def _gh(self, *args):
+        # Everything posted to GitHub goes through here: PRs, the model's
+        # comments, and the queue's failure comments that quote the model.
+        # git_commit scans the diff; this scans the text that goes out with it.
+        if tuple(args[:2]) in (("pr", "create"), ("pr", "comment"),
+                               ("issue", "create"), ("issue", "comment")):
+            text = "\n".join("+" + ln for a in args for ln in str(a).splitlines())
+            if scan_for_secrets(text):
+                print(f"{RED}  refusing to post - possible secret in the text{RST}")
+                return "refused: the text looks like it contains a secret, so nothing was posted."
         cmd = ["gh", *args]
         if self.repo and args and args[0] in ("issue", "pr", "repo"):
             cmd += ["--repo", self.repo]
