@@ -95,7 +95,6 @@ discover_and_clone() {
 }
 
 repos() {
-	[ "$QUEUE_DISCOVER" = "1" ] && discover_and_clone
 	if [ -n "$QUEUE_REPOS" ]; then
 		printf '%s\n' ${QUEUE_REPOS//,/ }
 		return
