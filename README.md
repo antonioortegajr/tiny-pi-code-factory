@@ -323,27 +323,12 @@ systemctl start pi5-queue               # run one cycle now
 make queue-timer ARGS=off               # stop
 ```
 
-**Repos it does not have yet.** By default it only checks checkouts already
-under `~/GitHub`, so an issue labelled in a repo the Pi has never cloned is
-invisible. Turn on discovery and it will find and clone them:
-
-```sh
-QUEUE_DISCOVER=1
-QUEUE_TOPIC=pi-agent           # opt repos in, on GitHub
-```
-
-**Opting a repo in is a GitHub topic, not a config change here.** Add the topic
-`pi-agent` to a repository and the Pi will start working its labelled issues;
-remove the topic and it stops. Nothing to edit on the Pi, and it is a query
-rather than a judgement — no model decides what gets cloned.
-
-Discovery asks which of your repos have an open labelled issue, intersects that
-with the topic, shallow-clones anything missing, then works it. `QUEUE_REPOS`
-narrows further if set. Each repo is fetched and fast-forwarded first, so the
-agent branches off current `main` rather than whatever was on disk last time.
-
-Leaving `QUEUE_TOPIC` empty puts **every repo you own** in scope, which is
-rarely what you want running unattended — the installer warns if you do.
+**Only repos you clone.** The Pi works checkouts under `~/GitHub` and nothing
+else. It never searches GitHub or clones a repo on its own: to put a repo in
+scope, clone it there yourself; to take it out, delete the checkout.
+`QUEUE_REPOS` narrows further if set. Each repo is fetched and fast-forwarded
+first, so the agent branches off current `main` rather than whatever was on
+disk last time.
 
 A systemd timer rather than cron, for three reasons: it will not start a second
 run while one is still going — which matters when a single issue takes ten
