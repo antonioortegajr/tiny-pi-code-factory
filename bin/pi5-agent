@@ -1415,6 +1415,7 @@ def queue(args):
             # this issue up again rather than needing it relabelled by hand.
             print()
             warn(f"interrupted during #{num}; its label is unchanged")
+            settle(tools)
             probe._git("switch", default)
             return 130
         except SystemExit:
