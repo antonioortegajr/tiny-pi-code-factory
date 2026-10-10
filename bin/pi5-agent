@@ -241,10 +241,15 @@ class Tools:
     # -- read --------------------------------------------------------------
 
     def gh_issue_list(self, state="open", limit=20):
+        # Working one issue means that issue only; other issues are not input.
+        if self.issue_number is not None:
+            return f"refused: you are working issue #{self.issue_number} only."
         return self._gh("issue", "list", "--state", str(state), "--limit", str(limit),
                         "--json", "number,title,state,labels,updatedAt")
 
     def gh_issue_view(self, number):
+        if self.issue_number is not None and str(number) != str(self.issue_number):
+            return f"refused: you are working issue #{self.issue_number} only."
         out = self._gh("issue", "view", str(number),
                        "--json", "number,title,state,body,labels,comments")
         # Anyone can comment on a public issue, and this is model input. Keep
