@@ -52,6 +52,13 @@ line Y inclusive". It failed. Deleting an explicitly quoted block succeeds (#60,
 migration design and an either/or. It failed the same way. Design questions
 are not agent work at all; they belong in an unlabelled issue for a person.
 
+**Ambiguity it cannot resolve.** #87 in the portfolio repo asked for five named
+stories to be added to a slider. One name matched no file, and the title
+disagreed with the body. Three attempts, about 1.5 hours each, all ended in
+prose with no tool call, and `cannot_complete` was never used. A 4B model does
+not report being stuck; it describes the task instead. So ambiguity has to be
+removed before the label goes on, not detected afterwards.
+
 **Multi-file edits with different changes per file.** #43 (four one-line
 comment edits across three files) worked, but it is the ceiling. Bigger
 multi-file changes have not been attempted after #36.
